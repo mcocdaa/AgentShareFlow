@@ -1,0 +1,18 @@
+{
+  "spec": "agent-pack/v0",
+  "name": "hello-handoff",
+  "version": "0.1.0",
+  "title": "Hello Handoff",
+  "description": "Minimal handoff agent pack. Answers project questions from bundled notes so teammates can ask the agent instead of interrupting the owner. Use as a demo and as a template for real handoff packs.",
+  "mode": "offline",
+  "tags": ["handoff", "demo", "onboarding"],
+  "license": "MIT",
+  "compatibility": ["agents", "claude", "codex", "opencode", "openclaw", "hermes"],
+  "skills": ["."],
+  "instructions": ["references/handoff.md"],
+  "secrets": [],
+  "metadata": {
+    "author": "mcocdaa",
+    "repository": "https://github.com/mcocdaa/AgentShareFlow"
+  }
+}

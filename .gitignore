@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+coverage/
+*.tgz
+*.log
+.env
+.env.*
+.DS_Store
+.vite/
+.agentshare/
+refs/

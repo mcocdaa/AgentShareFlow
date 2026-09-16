@@ -1,0 +1,7 @@
+packages:
+  - packages/core
+  - packages/cli
+  - packages/registry
+  - packages/web
+onlyBuiltDependencies:
+  - esbuild
