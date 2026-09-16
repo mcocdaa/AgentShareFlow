@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-agentshare
+      name: './src/index.ts'
+
+    - id: agentshare-dev-probe
+      name: './dev/probe.ts'

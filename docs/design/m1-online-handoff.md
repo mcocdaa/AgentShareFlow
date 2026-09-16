@@ -169,6 +169,30 @@ DSH 的 preset 只能由文件系统发现，插件无法在运行时注册，�
 - 源码在 `packages/dsh-plugin`，**不作为本仓库 pnpm workspace 成员**（避免在无 DSH 依赖时安装/构建失败）。
 - `scripts/sync-dsh-plugin.sh`（`pnpm dsh:sync`）把 `packages/core`（含构建产物）与 `packages/dsh-plugin` 同步到 `refs/deepseek-harness/packages/community/` 下，形成 clone 内 workspace 包，再用 `pnpm run dsh web --patch .../cordis.source.patch.yml` 运行。
 
+## 联调结果（2026-09-16，真实 DSH + 真实模型）
+
+环境：`refs/deepseek-harness`（clone，已 `pnpm install && pnpm run build`）、隔离 `DSH_HOME=/tmp/opencode/dsh-home`、relay 本地 8787。
+
+已验证：
+- 插件源码经 `--patch` 加载，命令/事件注册成功；分享创建、隧道 online、`/shares` 状态一致。
+- 访客消息 → relay → 隧道 → 本地 DSH 创建**独立 fork 会话**（`dsh_session_id` 回填 transcript）。
+- fork 继承 owner 的 route（provider/model），真实模型回合成功；文本增量经隧道流式回传聊天页。
+- transcript 落库（visitor/agent/system）、revoke 生效、离线 409。
+- 探针 `dev/probe.ts` 可在无 Web UI 的情况下触发分享，便于端到端验证。
+
+联调中发现并修复的问题（均已进代码）：
+1. **构建集成**：core 需按 DSH 约定输出 `lib/types`；`scripts/sync-dsh-plugin.sh` 负责改写 core 包元数据并把两个包接入 clone 的 `tsconfig.host.json`。
+2. **工具限制**：`tools.restrict()` 要求 deny 名单是全局已注册工具，在 agent 作用域会直接抛错；改为 agent 作用域 `tools.guard()`（单调拒绝，按名前缀/精确匹配）。
+3. **模型选择**：直接 `ctx.agents.create` 的 fork 缺少 route，`{{model}}` 模板变量无值导致 prompt 组装失败；改为继承 owner 的 `agentOptions` 并在 setup 中 `installModelSelection`。
+4. **探针 inject**：读取 `ctx.agentDefaultModel` 需要显式 `inject`。
+
+遗留（见 roadmap M1）：
+- 只读策略的对抗性审计（诱导 bash 调用未产生执行输出，但未做穷尽验证）。
+- `share_create` 工具（tool 执行上下文尚未提供 agent 引用）。
+- `agent/assistant-stream` 多步回合的 `end` 语义在工具调用穿插时的收尾策略。
+
+---
+
 ## 与现有脚手架的关系
 
 - `packages/core`：复用（Pack 规范、打包），M1 新增 `share` 相关类型。

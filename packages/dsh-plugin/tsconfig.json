@@ -7,10 +7,15 @@
   "include": ["src"],
   "references": [
     { "path": "../../../vendor/cordis" },
-    { "path": "../../../core/agent" },
-    { "path": "../../../core/session" },
-    { "path": "../../../credentials/credentials" },
-    { "path": "../../../llm/llm" },
-    { "path": "../../../preset/agent-presets" }
+    { "path": "../agentshare-core" },
+    { "path": "../../core/agent" },
+    { "path": "../../core/agent-default-model" },
+    { "path": "../../core/session" },
+    { "path": "../../core/tools" },
+    { "path": "../../credentials/credentials" },
+    { "path": "../../interaction/commands" },
+    { "path": "../../llm/llm" },
+    { "path": "../../preset/agent-presets" },
+    { "path": "../../sandbox/sandbox-policy" }
   ]
 }

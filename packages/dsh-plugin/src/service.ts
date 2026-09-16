@@ -1,6 +1,15 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle, AssistantStreamFrame, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
+import {
+  installModelSelection,
+  type Agent,
+  type AgentHandle,
+  type AgentOptions,
+  type AssistantStreamFrame,
+  type CreateAgentOptions,
+} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -9,28 +18,31 @@ import { basename } from 'node:path'
 
 const VISITOR_IDLE_MS = 30 * 60 * 1000
 
-const READONLY_TOOL_DENY = [
+const READONLY_TOOL_DENY_EXACT = new Set([
   'bash',
   'pwsh',
   'str_replace_editor',
-  'terminal_open',
-  'terminal_send',
-  'terminal_signal',
-  'terminal_close',
   'job_kill',
   'ralph',
   'spawn_teammate',
-  'team_task_create',
-  'team_task_update',
   'send_message',
   'interrupt_agent',
+  'create_goal',
+  'ask_user_question',
   'cordis_define',
   'cordis_run',
   'cordis_stop',
   'cordis_undefine',
-  'create_goal',
-  'ask_user_question',
-]
+])
+
+const READONLY_TOOL_DENY_PREFIX = ['terminal_', 'job_', 'team_task_', 'cordis_']
+
+function isBlockedTool(name: string): boolean {
+  return (
+    READONLY_TOOL_DENY_EXACT.has(name) ||
+    READONLY_TOOL_DENY_PREFIX.some((prefix) => name.startsWith(prefix))
+  )
+}
 
 export interface ShareServiceConfig {
   registry: string
@@ -50,6 +62,21 @@ interface ShareSource {
   cwd?: string
   parentSessionId: SessionId
   seed: SessionEvent[]
+  route?: AgentOptions
+}
+
+export function ownerAgentRoute(agent: Agent): AgentOptions {
+  const requestConfig = agent.session.requestHeader()?.config
+  if (requestConfig === undefined) return { ...agent.options }
+  const { provider: _provider, model: _model, reasoningEffort: _effort, ...rest } = agent.options
+  return {
+    ...rest,
+    provider: requestConfig.provider,
+    model: requestConfig.model,
+    ...requestConfig.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: requestConfig.reasoningEffort },
+  }
 }
 
 interface ActiveShare {
@@ -95,6 +122,7 @@ export class ShareService {
       ...header.cwd === undefined ? {} : { cwd: header.cwd },
       parentSessionId: header.id,
       seed: completedTurnPrefix(agent),
+      route: ownerAgentRoute(agent),
     }
 
     const tunnel = new TunnelClient({
@@ -218,6 +246,7 @@ export class ShareService {
     const seed = share.source.seed
     const options = {
       sessionId: sessionId as unknown as SessionId,
+      ...share.source.route === undefined ? {} : { agentOptions: share.source.route },
       meta: {
         ...share.source.cwd === undefined ? {} : { cwd: share.source.cwd },
         ...share.source.presetId === undefined ? {} : { agentPreset: share.source.presetId },
@@ -232,7 +261,22 @@ export class ShareService {
         if (presets !== undefined && share.source.presetId !== undefined) {
           await presets.mount(agentCtx, share.source.presetId)
         }
-        agentCtx.tools.restrict({ deny: READONLY_TOOL_DENY })
+        const route = share.source.route
+        if (route?.provider !== undefined && route.model !== undefined) {
+          installModelSelection(agentCtx, {
+            current: {
+              provider: route.provider,
+              model: route.model,
+              ...route.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort },
+            },
+            assembled: undefined,
+          })
+        }
+        agentCtx.tools.guard((execution) =>
+          isBlockedTool(execution.name)
+            ? `agentshare: ${execution.name} is disabled in shared sessions`
+            : undefined,
+        )
         agent.session.append('sandbox/mode', { mode: 'read-only', source: 'delegation' })
       },
     } as CreateAgentOptions

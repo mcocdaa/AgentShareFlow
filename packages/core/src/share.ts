@@ -88,7 +88,11 @@ export function createSseParser(onEvent: (event: SseEvent) => void): (chunk: str
         if (line.startsWith("event:")) event = line.slice(6).trim();
         else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
       }
-      if (dataLines.length > 0) onEvent({ event, data: dataLines.join("\n") });
+      if (dataLines.length > 0) {
+        const parsed: SseEvent = { data: dataLines.join("\n") };
+        if (event !== undefined) parsed.event = event;
+        onEvent(parsed);
+      }
       boundary = buffer.indexOf("\n\n");
     }
   };

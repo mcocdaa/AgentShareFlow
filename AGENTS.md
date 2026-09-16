@@ -20,7 +20,8 @@ pnpm dsh:sync       # sync core + dsh-plugin into refs/deepseek-harness
 - `packages/cli` is the `agentshare` binary (commander).
 - `packages/registry` is the HTTP API (Hono + `node:sqlite`) plus the in-memory share hub. Routes are split: `app.ts` composes, `pack-routes.ts` serves packs, `share-routes.ts` serves shares and the tunnel.
 - `packages/web` is a Vite React SPA, hash routing, no router dependency: `App.tsx` shell + pack list, `PackDetail.tsx`, `SharePage.tsx` (`#/share/:id` visitor chat), shared bits in `components.tsx`.
-- `packages/dsh-plugin` is the DeepSeek Harness plugin. It is NOT a pnpm workspace member (DSH deps come from the harness workspace); sync it with `pnpm dsh:sync` into `refs/deepseek-harness/packages/community/`. Its tsconfig is clone-relative on purpose; do not run its tsc from this repo.
+- `packages/dsh-plugin` is the DeepSeek Harness plugin. It is NOT a pnpm workspace member (DSH deps come from the harness workspace); sync it with `pnpm dsh:sync` into `refs/deepseek-harness/packages/community/`, then run `pnpm install && pnpm run build` inside the clone before `--patch` runs. Its tsconfig is clone-relative on purpose; do not run its tsc from this repo.
+- The clone's `tsconfig.host.json` is edited by `pnpm dsh:sync` (idempotent) to include both synced packages; `refs/` stays untracked.
 - `skills/agentshare/SKILL.md` is the agent-facing front door; keep it in sync with CLI flags.
 - `docs/README.md` indexes docs: `docs/spec/*` are contracts (change with code), `docs/design/*` are design docs, `docs/roadmap.md` tracks the plan.
 

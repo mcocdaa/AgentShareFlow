@@ -83,7 +83,7 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 ## 状态
 
 - **P0**：离线包发布/安装链路可用（CLI + registry + Web）。
-- **M1 在线交接**：relay、分享协议、DSH 插件源码完成，relay 冒烟通过；真机联调待 `refs/deepseek-harness` 安装构建。
-- 细节与后续计划见 `docs/roadmap.md`。
+- **M1 在线交接**：已在真实 DSH + 真实模型上端到端验证——访客提问 → 独立只读 fork 会话 → 流式回复 → transcript 落库；剩下只读对抗性审计、`share_create` 工具与插件 npm 分发（见 `docs/roadmap.md`）。
+- 联调细节与修复记录见 `docs/design/m1-online-handoff.md`。
 
 License: TBD

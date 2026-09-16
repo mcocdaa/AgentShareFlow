@@ -2,14 +2,18 @@
 
 差异化定位：**跨 harness 中立 + 离线/在线双形态 + 对话即资产（交接/问答）**。不做通用 skill 商店。
 
-## M1 — 在线交接（当前冲刺，DSH 插件优先）
+## M1 — 在线交接（DSH 插件优先）
 
 - [x] relay：shares / share_sessions / share_messages + tunnel SSE/POST + 访客聊天页（`#/share/:id`）
 - [x] 协议与客户端：`@agentshare/core/share.ts`（TunnelClient / ShareClient + 单测）
-- [x] DSH 插件源码：`/share`、`/shares`、`/unshare` + 只读 fork（sandbox read-only + tools restrict）+ 流式转发
+- [x] DSH 插件源码：`/share`、`/shares`、`/unshare` + 只读 fork（sandbox read-only + `tools.guard`）+ 流式转发
 - [x] relay 冒烟：mock 隧道端到端（online → 问答 → 流式 → transcript → revoke 410）
-- [ ] DSH 真机联调：`pnpm dsh:sync` + clone 内 `pnpm install` + `--patch` 运行，验证 fork/流式
-- [ ] 插件在 clone 内 typecheck 通过，补 `share_create` 工具（tool 侧 agent 上下文就绪后）
+- [x] clone 构建集成：sync 脚本接入 `tsconfig.host.json`，core 按 `lib/types` 约定参与整仓构建
+- [x] 真机联调：真实 DSH + 真实模型跑通「访客提问 → fork → 流式回复 → transcript」
+- [ ] 只读策略对抗性审计（诱导 bash 未产生执行，但未穷尽验证）
+- [ ] `share_create` 工具（tool 执行上下文暂缺 agent 引用）
+- [ ] 多步回合的 `end` 收尾策略（工具调用穿插时的 agent_done 语义）
+- [ ] 插件分发：发布 npm 包 + `dsh plugin add` 安装路径验证（离线依赖 @agentshare/core）
 
 ## P0 — 骨架（已完成）
 
