@@ -14,6 +14,7 @@
     "registry": "pnpm --filter @agentshare/registry dev",
     "web": "pnpm --filter @agentshare/web dev",
     "cli": "pnpm --filter @agentshare/cli dev --",
-    "dsh:dev": "bash scripts/dsh-dev.sh"
+    "dsh:sync": "bash scripts/sync-dsh-plugin.sh",
+    "mock:share": "node scripts/mock-share-agent.mjs"
   }
 }

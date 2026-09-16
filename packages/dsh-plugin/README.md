@@ -5,7 +5,7 @@ DeepSeek Harness（dsh）插件：把当前会话分享成一个只读的实时�
 源码位于本仓库 `packages/dsh-plugin/`，但**不是本仓库 pnpm workspace 的成员**；开发/运行都在 `refs/deepseek-harness` 这个 clone 里进行：
 
 ```bash
-bash scripts/dsh-dev.sh
+pnpm dsh:sync
 cd refs/deepseek-harness
 pnpm install
 pnpm run dsh web --patch ./packages/community/dsh-agentshare/cordis.source.patch.yml

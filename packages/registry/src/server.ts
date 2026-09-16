@@ -1,6 +1,6 @@
 import path from "node:path";
 import { serve } from "@hono/node-server";
-import { createApp } from "./routes.js";
+import { createApp } from "./app.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const dataDir = path.resolve(process.env.AGENTSHARE_DATA ?? "data");

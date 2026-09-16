@@ -8,15 +8,8 @@ import {
   parseManifest,
 } from "@agentshare/core";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { authenticate } from "./auth.js";
-import { type PackRow, RegistryDb } from "./db.js";
-import { ShareHub } from "./share-hub.js";
-import { createShareRoutes } from "./share-routes.js";
-
-interface AppOptions {
-  dataDir: string;
-}
+import { type PackRow, type RegistryDb } from "./db.js";
 
 function pick(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -47,29 +40,21 @@ function toDetail(row: PackRow, versions: string[]) {
   };
 }
 
-export function createApp({ dataDir }: AppOptions): Hono {
-  const packsDir = path.join(dataDir, "packs");
-  fs.mkdirSync(packsDir, { recursive: true });
-  const db = new RegistryDb(path.join(dataDir, "registry.db"));
-  const hub = new ShareHub();
+export interface PackRouteDeps {
+  db: RegistryDb;
+  packsDir: string;
+}
 
+export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
   const app = new Hono();
-  app.use("*", cors());
-  app.route("/api/v1", createShareRoutes({ db, hub }));
 
-  app.get("/", (c) =>
-    c.json({ name: "agentshare-registry", spec: "agent-pack/v0", api: "/api/v1" }),
-  );
-
-  app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
-
-  app.get("/api/v1/search", (c) => {
+  app.get("/search", (c) => {
     const query = (c.req.query("q") ?? "").trim();
     const mode = c.req.query("mode");
     return c.json({ items: db.search(query, mode).map(toSummary) });
   });
 
-  app.get("/api/v1/agents/:owner/:name", (c) => {
+  app.get("/agents/:owner/:name", (c) => {
     const { owner, name } = c.req.param();
     const versions = db.versions(owner, name);
     const latest = versions.at(-1);
@@ -77,14 +62,14 @@ export function createApp({ dataDir }: AppOptions): Hono {
     return c.json(toDetail(latest, versions.map((row) => row.version)));
   });
 
-  app.get("/api/v1/agents/:owner/:name/:version", (c) => {
+  app.get("/agents/:owner/:name/:version", (c) => {
     const { owner, name, version } = c.req.param();
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
     return c.json(toDetail(row, db.versions(owner, name).map((entry) => entry.version)));
   });
 
-  app.get("/api/v1/agents/:owner/:name/:version/download", (c) => {
+  app.get("/agents/:owner/:name/:version/download", (c) => {
     const { owner, name, version } = c.req.param();
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
@@ -97,7 +82,7 @@ export function createApp({ dataDir }: AppOptions): Hono {
     });
   });
 
-  app.post("/api/v1/agents", async (c) => {
+  app.post("/agents", async (c) => {
     const auth = authenticate(c.req.header("authorization"));
     if (!auth) return c.json({ error: "unauthorized" }, 401);
     if (!OWNER_PATTERN.test(auth.owner)) {
@@ -127,12 +112,17 @@ export function createApp({ dataDir }: AppOptions): Hono {
     const digest = createHash("sha256").update(bytes).digest("hex");
     const declared = c.req.header("x-pack-digest");
     if (declared && declared !== digest) {
-      return c.json({ error: "digest mismatch", details: `expected ${declared}, got ${digest}` }, 400);
+      return c.json(
+        { error: "digest mismatch", details: `expected ${declared}, got ${digest}` },
+        400,
+      );
     }
 
     if (db.get(auth.owner, manifest.name, manifest.version)) {
       return c.json(
-        { error: `${auth.owner}/${manifest.name}@${manifest.version} already exists, releases are immutable` },
+        {
+          error: `${auth.owner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
+        },
         409,
       );
     }

@@ -8,7 +8,7 @@
 - [x] 协议与客户端：`@agentshare/core/share.ts`（TunnelClient / ShareClient + 单测）
 - [x] DSH 插件源码：`/share`、`/shares`、`/unshare` + 只读 fork（sandbox read-only + tools restrict）+ 流式转发
 - [x] relay 冒烟：mock 隧道端到端（online → 问答 → 流式 → transcript → revoke 410）
-- [ ] DSH 真机联调：`pnpm dsh:dev` + clone 内 `pnpm install` + `--patch` 运行，验证 fork/流式
+- [ ] DSH 真机联调：`pnpm dsh:sync` + clone 内 `pnpm install` + `--patch` 运行，验证 fork/流式
 - [ ] 插件在 clone 内 typecheck 通过，补 `share_create` 工具（tool 侧 agent 上下文就绪后）
 
 ## P0 — 骨架（已完成）
@@ -18,8 +18,9 @@
 - [x] CLI：login / pack / push / search / info / install（6 个 harness 目录）
 - [x] Registry：Hono + node:sqlite + 本地 tarball 存储 + Bearer 鉴权
 - [x] Web：搜索 + 详情 + 安装命令
-- [x] 门面 skill `skill/agentshare/SKILL.md` + 示例包
-- [ ] 首次提交后推送远程
+- [x] 门面 skill `skills/agentshare/SKILL.md` + 示例包
+- [x] 仓库整理：docs 索引与 design 目录、registry packs/share 路由拆分、web 页面拆分、脚本重命名
+- [x] 首次提交并推送远程（`faac75a` 起）
 
 ## P1 — 离线包 MVP（4–6 周）
 

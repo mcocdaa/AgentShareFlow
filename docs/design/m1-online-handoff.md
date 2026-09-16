@@ -167,7 +167,7 @@ DSH 的 preset 只能由文件系统发现，插件无法在运行时注册，�
 ## 插件包位置与工作区
 
 - 源码在 `packages/dsh-plugin`，**不作为本仓库 pnpm workspace 成员**（避免在无 DSH 依赖时安装/构建失败）。
-- `scripts/dsh-dev.sh` 把 `packages/core`（含构建产物）与 `packages/dsh-plugin` 同步到 `refs/deepseek-harness/packages/community/` 下，形成 clone 内 workspace 包，再用 `pnpm run dsh web --patch .../cordis.source.patch.yml` 运行。
+- `scripts/sync-dsh-plugin.sh`（`pnpm dsh:sync`）把 `packages/core`（含构建产物）与 `packages/dsh-plugin` 同步到 `refs/deepseek-harness/packages/community/` 下，形成 clone 内 workspace 包，再用 `pnpm run dsh web --patch .../cordis.source.patch.yml` 运行。
 
 ## 与现有脚手架的关系
 

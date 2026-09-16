@@ -74,9 +74,42 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 | 404 | owner/name/version 不存在 |
 | 409 | 版本已存在（发布不可变） |
 
+## 在线交接 API（M1 已实现）
+
+公开接口（无需认证；分享 id 即 128-bit 能力 token）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/shares/:id` | 元数据 `{ id, owner, title, project, status, createdAt, lastSeenAt }` |
+| GET | `/api/v1/shares/:id/events?sessionId=` | 访客 SSE：`status` / `message` / `delta` / `done` / `ping`；带 sessionId 时先重放该会话历史 |
+| POST | `/api/v1/shares/:id/messages` | 访客发言 `{ sessionId?, content, visitorName? }` → `{ sessionId, message }` |
+
+拥有者接口（`Authorization: Bearer <token>`，owner 必须匹配）：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/v1/shares` | 创建分享 `{ title, project? }` |
+| GET | `/api/v1/shares` | 列出自己的分享 |
+| POST | `/api/v1/shares/:id/revoke` | 撤销：status=revoked，关闭隧道与访客流 |
+| GET | `/api/v1/shares/:id/transcript` | 会话与消息全量 |
+| GET | `/api/v1/tunnel/:shareId/events` | 插件出站隧道（SSE；服务端每 15s 发帧 ping） |
+| POST | `/api/v1/tunnel/:shareId/frames` | 插件回传帧：`agent_chunk` / `agent_done` / `agent_error` / `fork_created` |
+
+状态语义：`online` 以隧道连接为准（内存），断线即 `offline`，撤销后永久 `revoked`。
+限流：每分享 30 条/分钟、每会话 10 条/分钟。帧类型见 `packages/core/src/share.ts`（`TunnelFrame`）。
+
+### 错误补充
+
+| 状态码 | 场景 |
+|---|---|
+| 403 | 非分享拥有者访问拥有者接口 |
+| 409 | 分享离线时发言 |
+| 410 | 分享已撤销后发言 |
+| 429 | 触发限流 |
+
 ## v1 目标（排期）
 
 - 在线 agent：`POST /api/v1/agents` 支持 `endpoint` / `runtime` 模式；`GET /api/v1/agents/:owner/:name/.well-known/agent-card.json` 反代 A2A 卡片。
-- 对话：`POST /api/v1/agents/:owner/:name/:version/chat`（SSE），会话可冻结为只读分享页。
+- 对话资产：分享 transcript 冻结/导出，支持 fork 继续（`session import` 在 DSH 侧缺失，见 roadmap）。
 - 认证升级：registry 签发 token / OIDC；发布签名校验（minisign）。
 - 联邦：从 ClawHub / Smithery / skills.sh 导入。
