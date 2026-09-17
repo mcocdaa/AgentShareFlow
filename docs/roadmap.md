@@ -10,10 +10,11 @@
 - [x] relay 冒烟：mock 隧道端到端（online → 问答 → 流式 → transcript → revoke 410）
 - [x] clone 构建集成：sync 脚本接入 `tsconfig.host.json`，core 按 `lib/types` 约定参与整仓构建
 - [x] 真机联调：真实 DSH + 真实模型跑通「访客提问 → fork → 流式回复 → transcript」
-- [ ] 只读策略对抗性审计（诱导 bash 未产生执行，但未穷尽验证）
-- [ ] `share_create` 工具（tool 执行上下文暂缺 agent 引用）
-- [ ] 多步回合的 `end` 收尾策略（工具调用穿插时的 agent_done 语义）
-- [ ] 插件分发：发布 npm 包 + `dsh plugin add` 安装路径验证（离线依赖 @agentshare/core）
+- [x] 只读策略对抗性审计：白名单 `tools.guard`（仅 15 个只读工具），实测 `read` 通过、`bash`/`write` 被拒且无文件落盘
+- [x] `share_create` 工具：owner agent 可调用创建分享（探针实测生效），并对访客不可见（`tools.restrict` + guard）
+- [x] 回合收尾：以 `agent/status → idle` 为界 flush `agent_done`，多步工具调用不再碎片化
+- [x] 分发链路：`dsh plugin --profile demo add <目录>` 成功入 profile 且 `--dump-config` 可见；core 以 `file:` 依赖随插件走
+- [ ] 插件 npm 发布（需把 `@agentshare/core` 发到 npm，或在 tsdown 配置里内联打包）
 
 ## P0 — 骨架（已完成）
 

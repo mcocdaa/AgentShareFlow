@@ -18,30 +18,26 @@ import { basename } from 'node:path'
 
 const VISITOR_IDLE_MS = 30 * 60 * 1000
 
-const READONLY_TOOL_DENY_EXACT = new Set([
-  'bash',
-  'pwsh',
-  'str_replace_editor',
-  'job_kill',
-  'ralph',
-  'spawn_teammate',
-  'send_message',
-  'interrupt_agent',
-  'create_goal',
-  'ask_user_question',
-  'cordis_define',
-  'cordis_run',
-  'cordis_stop',
-  'cordis_undefine',
+const READONLY_TOOL_ALLOW = new Set([
+  'read',
+  'read_image',
+  'glob',
+  'grep',
+  'skill',
+  'present',
+  'lsp',
+  'get_goal',
+  'list_agents',
+  'list_subagent_models',
+  'session_event_read',
+  'session_event_search',
+  'session_event_trace',
+  'session_search',
+  'session_trace',
 ])
 
-const READONLY_TOOL_DENY_PREFIX = ['terminal_', 'job_', 'team_task_', 'cordis_']
-
-function isBlockedTool(name: string): boolean {
-  return (
-    READONLY_TOOL_DENY_EXACT.has(name) ||
-    READONLY_TOOL_DENY_PREFIX.some((prefix) => name.startsWith(prefix))
-  )
+function isAllowedTool(name: string): boolean {
+  return READONLY_TOOL_ALLOW.has(name)
 }
 
 export interface ShareServiceConfig {
@@ -176,19 +172,25 @@ export class ShareService {
         sessionId,
         content: frame.chunk.text,
       })
-      return
     }
-    if (frame.type === 'end' && visitor.buffer.length > 0) {
-      const content = visitor.buffer
-      visitor.buffer = ''
-      void share.tunnel.send({ type: 'agent_done', shareId: share.id, sessionId, content })
-      this.touchVisitor(visitor)
-    }
+  }
+
+  onAgentStatus(agent: Agent, status: string): void {
+    if (status !== 'idle') return
+    const found = this.findVisitor(agent)
+    if (found === undefined) return
+    const { share, sessionId, visitor } = found
+    if (visitor.buffer.length === 0) return
+    const content = visitor.buffer
+    visitor.buffer = ''
+    void share.tunnel.send({ type: 'agent_done', shareId: share.id, sessionId, content })
+    this.touchVisitor(visitor)
   }
 
   onAgentError(agent: Agent, error: unknown): void {
     const found = this.findVisitor(agent)
     if (found === undefined) return
+    found.visitor.buffer = ''
     void found.share.tunnel.send({
       type: 'agent_error',
       shareId: found.share.id,
@@ -273,10 +275,11 @@ export class ShareService {
           })
         }
         agentCtx.tools.guard((execution) =>
-          isBlockedTool(execution.name)
-            ? `agentshare: ${execution.name} is disabled in shared sessions`
-            : undefined,
+          isAllowedTool(execution.name)
+            ? undefined
+            : `agentshare: ${execution.name} is not available in shared sessions`,
         )
+        agentCtx.tools.restrict({ deny: ['share_create'] })
         agent.session.append('sandbox/mode', { mode: 'read-only', source: 'delegation' })
       },
     } as CreateAgentOptions

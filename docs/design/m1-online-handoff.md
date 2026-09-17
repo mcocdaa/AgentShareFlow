@@ -193,6 +193,20 @@ DSH 的 preset 只能由文件系统发现，插件无法在运行时注册，�
 
 ---
 
+## 只读审计、收尾与分发（2026-09-17 补充）
+
+只读策略改为**白名单**（`tools.guard` 只放行 read / read_image / glob / grep / skill / present / lsp / get_goal / list_agents / list_subagent_models / session_* 共 15 个），并在访客 setup 中 `tools.restrict({ deny: ['share_create'] })` 隐藏分享工具。
+
+对抗实测（真实模型、真实 fork）：
+- `read` 正常（读到 package.json 的 name 字段）；
+- `bash`、`write` 均返回 `agentshare: <tool> is not available in shared sessions`，且无任何文件落盘。
+
+回合收尾：不再依赖 `agent/assistant-stream` 的 `end` 帧（多步工具调用会多次出现），改为监听 `agent/status → idle` 时 flush 缓冲的文本为 `agent_done`，错误时清空缓冲并转发 `agent_error`。
+
+分发：`@agentshare/core` 在 clone 内以 `file:../agentshare-core` 随插件分发；`dsh plugin --profile demo add ./packages/community/dsh-agentshare` 可安装并出现在 `--dump-config` 的 bundle 层。npm 发布前需要把 core 发到 npm 或改为内联打包。
+
+---
+
 ## 与现有脚手架的关系
 
 - `packages/core`：复用（Pack 规范、打包），M1 新增 `share` 相关类型。

@@ -51,6 +51,16 @@ rsync -a --delete --exclude node_modules --exclude lib "$ROOT/packages/dsh-plugi
 node -e '
 const fs = require("node:fs");
 const file = process.argv[1];
+const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+if (manifest.dependencies?.["@agentshare/core"] !== undefined) {
+  manifest.dependencies["@agentshare/core"] = "file:../agentshare-core";
+}
+fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+' "$PLUGIN_DEST/package.json"
+
+node -e '
+const fs = require("node:fs");
+const file = process.argv[1];
 let text = fs.readFileSync(file, "utf8");
 const entries = [
   "    { \"path\": \"./packages/community/agentshare-core\" },",

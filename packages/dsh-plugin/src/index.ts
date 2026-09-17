@@ -2,12 +2,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-credentials'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { ShareService } from './service.ts'
 
 export const name = 'agentshare'
 
-export const inject = ['commands', 'credentials', 'agents']
+export const inject = ['commands', 'tools', 'credentials', 'agents']
 
 export interface Config {
   registry: string
@@ -70,9 +71,38 @@ export function apply(ctx: Context, config: Config): void {
     },
   }), 'agentshare: /unshare')
 
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'share_create',
+    description: 'Share this session as a live read-only link so someone else can ask this agent questions. '
+      + 'Returns the share id and URL. Use when the user asks to hand off or share this session.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          url: { type: 'string', required: true },
+        },
+      },
+      render: (_args: unknown, value: { id: string, url: string }) => [
+        { type: 'text' as const, text: `Share link: ${value.url}` },
+      ],
+    },
+    execute: async (_args: unknown, exec) => {
+      const owner = exec.agent
+      if (owner === undefined) throw new Error('share_create requires an agent context')
+      return await service.shareFromAgent(owner)
+    },
+  })), 'agentshare: share_create')
+
   ctx.effect(() => ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     service.onAssistantStream(agent, frame)
   }), 'agentshare: stream forwarding')
+
+  ctx.effect(() => ctx.on('agent/status', ({ agent, status }) => {
+    service.onAgentStatus(agent, status)
+  }), 'agentshare: turn completion')
 
   ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
     service.onAgentError(agent, error)
