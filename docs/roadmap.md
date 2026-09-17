@@ -14,6 +14,9 @@
 - [x] `share_create` 工具：owner agent 可调用创建分享（探针实测生效），并对访客不可见（`tools.restrict` + guard）
 - [x] 回合收尾：以 `agent/status → idle` 为界 flush `agent_done`，多步工具调用不再碎片化
 - [x] 分发链路：`dsh plugin --profile demo add <目录>` 成功入 profile 且 `--dump-config` 可见；core 以 `file:` 依赖随插件走
+- [x] 公网部署：`AGENTSHARE_PUBLIC_URL` + registry 托管 Web 静态页 + Dockerfile/compose（后台构建验证中）
+- [x] endpoint 分享：任意 A2A agent（AgentCard 校验、`SendMessage` 兼容 `message/send`、`contextId` 多轮）
+- [ ] A2A facade：把 tunnel 分享暴露成 A2A server（`.well-known/agent-card.json` + JSON-RPC），让 A2A 客户端可直接发现/调用
 - [ ] 插件 npm 发布（需把 `@agentshare/core` 发到 npm，或在 tsdown 配置里内联打包）
 
 ## P0 — 骨架（已完成）

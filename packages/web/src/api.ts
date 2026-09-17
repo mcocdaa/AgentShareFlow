@@ -30,8 +30,11 @@ export interface ShareMeta {
   id: string;
   owner: string;
   title: string;
+  mode?: "tunnel" | "endpoint";
   project?: string;
   status: "online" | "offline" | "revoked";
+  url?: string;
+  agent?: { name: string; description?: string; skills?: Array<{ id: string; name: string }> };
   createdAt: string;
   lastSeenAt?: string;
 }

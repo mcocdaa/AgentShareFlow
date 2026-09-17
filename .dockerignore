@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+refs
+data
+.git
+.github
+dist
+**/dist
+coverage
+*.log
+.agentshare
+.env
+.env.*

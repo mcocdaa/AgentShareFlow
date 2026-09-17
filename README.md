@@ -57,6 +57,45 @@ pnpm --filter @agentshare/web dev
 pnpm mock:share   # relay 全链路冒烟（另开终端先起 registry）
 ```
 
+## 公网部署（relay + 分享页）
+
+registry 会同时托管 API 与 Web 分享页（构建后的 `web/dist`），所以一个进程就是完整中转：
+
+```bash
+AGENTSHARE_TOKENS='s3cret:alice' AGENTSHARE_PUBLIC_URL='https://relay.example.com' \
+  docker compose up -d --build
+```
+
+或者直接 Docker：
+
+```bash
+docker build -t agent-share-flow-relay .
+docker run -d -p 8787:8787 -v relay-data:/data \
+  -e AGENTSHARE_TOKENS='s3cret:alice' \
+  -e AGENTSHARE_PUBLIC_URL='https://relay.example.com' \
+  agent-share-flow-relay
+```
+
+- `AGENTSHARE_PUBLIC_URL` 决定分享链接里的域名（缺省用请求来源），建议置于 HTTPS 反向代理之后。
+- 数据落在 `/data`（SQLite + packs 目录），生产请挂卷。
+- 国内构建：`docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com ...`。
+- 环境变量总览：`PORT`、`AGENTSHARE_DATA`、`AGENTSHARE_TOKENS`、`AGENTSHARE_PUBLIC_URL`、`AGENTSHARE_WEB_DIR`（默认 `packages/web/dist`）。
+
+## 分享任意 A2A agent（endpoint 模式）
+
+任何实现了 A2A 协议（v1.0 `SendMessage`，兼容旧 `message/send`）并且能访问到 Agent Card 的 agent，都可以一条链接分享给访客，不需要你在本机跑任何插件：
+
+```bash
+curl -X POST https://relay.example.com/api/v1/shares \
+  -H "authorization: Bearer $AGENTSHARE_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"title":"my a2a agent","mode":"endpoint","agentCardUrl":"https://agent.example.com"}'
+```
+
+relay 会拉取并校验 `/.well-known/agent-card.json`，保存卡片信息，访客打开返回的 `url` 即可对话；多轮通过 A2A `contextId` 维持。框架无关（ADK / LangGraph / CrewAI / 自研均可）。
+
+本地验证：`pnpm mock:a2a` 起一个 mock A2A agent，再按上面的 curl 创建分享。
+
 ## 在线交接（M1，DSH 插件）
 
 ```bash

@@ -96,11 +96,13 @@ export function SharePage({ id }: { id: string }) {
         <span className={`badge status-${status}`}>{status}</span>
       </div>
       <p className="muted small">
-        {status === "online"
-          ? "You are talking to a live agent session on the owner's machine. Read-only."
-          : status === "revoked"
-            ? "This share has been revoked."
-            : "The owner is offline. The link works again when their agent is sharing."}
+        {status === "revoked"
+          ? "This share has been revoked."
+          : meta.mode === "endpoint"
+            ? `You are talking to a remote agent over A2A${meta.agent?.name ? `: ${meta.agent.name}` : ""}.`
+            : status === "online"
+              ? "You are talking to a live agent session on the owner's machine. Read-only."
+              : "The owner is offline. The link works again when their agent is sharing."}
       </p>
 
       <div className="chat">

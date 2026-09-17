@@ -1,5 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { isTunnelFrame, type TunnelFrame } from "@agentshare/core";
+import {
+  type A2AAgentCard,
+  type ShareMode,
+  fetchAgentCard,
+  isTunnelFrame,
+  sendA2AMessage,
+  type TunnelFrame,
+} from "@agentshare/core";
 import { Hono } from "hono";
 import type { SSEStreamingApi } from "hono/streaming";
 import { streamSSE } from "hono/streaming";
@@ -24,16 +31,42 @@ function makeHubStream(stream: SSEStreamingApi): HubStream {
 
 function effectiveStatus(share: ShareRow, hub: ShareHub): "online" | "offline" | "revoked" {
   if (share.status === "revoked") return "revoked";
+  if (share.mode === "endpoint") return "online";
   return hub.hasTunnel(share.id) ? "online" : "offline";
 }
 
-function summary(share: ShareRow, hub: ShareHub) {
+function agentInfo(share: ShareRow) {
+  if (share.agent_card === null) return undefined;
+  try {
+    const card = JSON.parse(share.agent_card) as A2AAgentCard;
+    return {
+      name: card.name,
+      ...card.description === undefined ? {} : { description: card.description },
+      ...card.skills === undefined
+        ? {}
+        : {
+            skills: card.skills.map((skill) => ({
+              id: skill.id,
+              name: skill.name,
+              ...skill.description === undefined ? {} : { description: skill.description },
+            })),
+          },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function summary(share: ShareRow, hub: ShareHub, baseUrl: string) {
   return {
     id: share.id,
     owner: share.owner,
     title: share.title,
+    mode: share.mode,
     project: share.project ?? undefined,
     status: effectiveStatus(share, hub),
+    url: `${baseUrl.replace(/\/$/, "")}/#/share/${share.id}`,
+    ...agentInfo(share) === undefined ? {} : { agent: agentInfo(share) },
     createdAt: share.created_at,
     lastSeenAt: share.last_seen_at ?? undefined,
   };
@@ -52,11 +85,14 @@ function messagePayload(message: ShareMessageRow) {
 export interface ShareRouteDeps {
   db: RegistryDb;
   hub: ShareHub;
+  publicUrl?: string;
 }
 
-export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
+export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono {
   const app = new Hono();
   const hits = new Map<string, number[]>();
+
+  const baseUrl = (requestUrl: string): string => publicUrl ?? new URL(requestUrl).origin;
 
   const allow = (key: string, limit: number): boolean => {
     const now = Date.now();
@@ -72,6 +108,29 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
 
   const owner = (header: string | undefined): string | undefined => authenticate(header)?.owner;
 
+  const respondWithA2A = async (share: ShareRow, sessionId: string, content: string): Promise<void> => {
+    const finish = (role: ShareMessageRow["role"], text: string): void => {
+      const message = db.insertShareMessage({
+        sessionId,
+        role,
+        content: text,
+        created_at: new Date().toISOString(),
+      });
+      hub.publish(share.id, "message", messagePayload(message), sessionId);
+      hub.publish(share.id, "done", { sessionId }, sessionId);
+    };
+    try {
+      const session = db.getShareSession(sessionId);
+      const result = await sendA2AMessage(share.endpoint_url ?? "", content, {
+        ...session?.a2a_context_id == null ? {} : { contextId: session.a2a_context_id },
+      });
+      if (result.contextId !== undefined) db.setShareSessionA2aContext(sessionId, result.contextId);
+      finish("agent", result.text === "" ? "(the agent returned no text)" : result.text);
+    } catch (error) {
+      finish("system", `A2A error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   app.post("/shares", async (c) => {
     const who = owner(c.req.header("authorization"));
     if (!who) return c.json({ error: "unauthorized" }, 401);
@@ -79,6 +138,8 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: unknown;
       project?: unknown;
+      mode?: unknown;
+      agentCardUrl?: unknown;
     };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (title.length === 0 || title.length > 120) {
@@ -86,6 +147,29 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     }
     const project =
       typeof body.project === "string" && body.project.length <= 200 ? body.project : null;
+    const mode: ShareMode = body.mode === "endpoint" ? "endpoint" : "tunnel";
+
+    let endpointUrl: string | null = null;
+    let agentCard: string | null = null;
+    if (mode === "endpoint") {
+      const cardUrl = typeof body.agentCardUrl === "string" ? body.agentCardUrl.trim() : "";
+      if (cardUrl === "") {
+        return c.json({ error: "agentCardUrl is required for endpoint shares" }, 400);
+      }
+      try {
+        const card = await fetchAgentCard(cardUrl);
+        endpointUrl = card.url;
+        agentCard = JSON.stringify(card);
+      } catch (error) {
+        return c.json(
+          {
+            error: "failed to fetch agent card",
+            details: error instanceof Error ? error.message : String(error),
+          },
+          400,
+        );
+      }
+    }
 
     const share: ShareRow = {
       id: randomBytes(16).toString("hex"),
@@ -93,23 +177,27 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
       title,
       project,
       status: "offline",
+      mode,
+      endpoint_url: endpointUrl,
+      agent_card: agentCard,
       created_at: new Date().toISOString(),
       last_seen_at: null,
     };
     db.insertShare(share);
-    return c.json(summary(share, hub), 201);
+    return c.json(summary(share, hub, baseUrl(c.req.url)), 201);
   });
 
   app.get("/shares", (c) => {
     const who = owner(c.req.header("authorization"));
     if (!who) return c.json({ error: "unauthorized" }, 401);
-    return c.json({ items: db.listShares(who).map((share) => summary(share, hub)) });
+    const base = baseUrl(c.req.url);
+    return c.json({ items: db.listShares(who).map((share) => summary(share, hub, base)) });
   });
 
   app.get("/shares/:id", (c) => {
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
-    return c.json(summary(share, hub));
+    return c.json(summary(share, hub, baseUrl(c.req.url)));
   });
 
   app.post("/shares/:id/revoke", (c) => {
@@ -122,7 +210,7 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     db.setShareStatus(share.id, "revoked");
     hub.publish(share.id, "status", { status: "revoked" });
     hub.closeShare(share.id);
-    return c.json(summary({ ...share, status: "revoked" }, hub));
+    return c.json(summary({ ...share, status: "revoked" }, hub, baseUrl(c.req.url)));
   });
 
   app.get("/shares/:id/transcript", (c) => {
@@ -132,7 +220,7 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     if (!share) return c.json({ error: "not found" }, 404);
     if (share.owner !== who) return c.json({ error: "forbidden" }, 403);
     return c.json({
-      share: summary(share, hub),
+      share: summary(share, hub, baseUrl(c.req.url)),
       sessions: db.listShareSessions(share.id),
       messages: db.listShareMessages(share.id).map(messagePayload),
     });
@@ -180,7 +268,13 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
     if (share.status === "revoked") return c.json({ error: "share is revoked" }, 410);
-    if (!hub.hasTunnel(share.id)) return c.json({ error: "share is offline" }, 409);
+    const isEndpoint = share.mode === "endpoint";
+    if (!isEndpoint && !hub.hasTunnel(share.id)) {
+      return c.json({ error: "share is offline" }, 409);
+    }
+    if (isEndpoint && share.endpoint_url === null) {
+      return c.json({ error: "endpoint share has no agent url" }, 409);
+    }
 
     const body = (await c.req.json().catch(() => ({}))) as {
       sessionId?: unknown;
@@ -225,6 +319,13 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
       content,
       created_at: new Date().toISOString(),
     });
+    hub.publish(share.id, "message", messagePayload(message), sessionId);
+
+    if (isEndpoint) {
+      void respondWithA2A(share, sessionId, content);
+      return c.json({ sessionId, message: messagePayload(message) }, 201);
+    }
+
     const frame: TunnelFrame = {
       type: "visitor_message",
       shareId: share.id,
@@ -236,7 +337,6 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     if (!hub.sendToTunnel(share.id, frame)) {
       return c.json({ error: "share is offline" }, 409);
     }
-    hub.publish(share.id, "message", messagePayload(message), sessionId);
     return c.json({ sessionId, message: messagePayload(message) }, 201);
   });
 
@@ -244,12 +344,11 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     streamSSE(c, async (stream) => {
       const who = owner(c.req.header("authorization"));
       if (!who) {
-        await stream.writeSSE({ event: "frame", data: JSON.stringify({ type: "ping" }) });
         await stream.close();
         return;
       }
       const share = db.getShare(c.req.param("shareId"));
-      if (!share || share.owner !== who || share.status === "revoked") {
+      if (!share || share.owner !== who || share.status === "revoked" || share.mode !== "tunnel") {
         await stream.close();
         return;
       }
@@ -298,6 +397,7 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
     if (!share) return c.json({ error: "not found" }, 404);
     if (share.owner !== who) return c.json({ error: "forbidden" }, 403);
     if (share.status === "revoked") return c.json({ error: "share is revoked" }, 410);
+    if (share.mode !== "tunnel") return c.json({ error: "not a tunnel share" }, 400);
 
     const body: unknown = await c.req.json().catch(() => undefined);
     if (!isTunnelFrame(body)) return c.json({ error: "invalid frame" }, 400);
@@ -314,7 +414,12 @@ export function createShareRoutes({ db, hub }: ShareRouteDeps): Hono {
         return c.json({ ok: true });
       }
       case "agent_chunk": {
-        hub.publish(share.id, "delta", { sessionId: frame.sessionId, content: frame.content }, frame.sessionId);
+        hub.publish(
+          share.id,
+          "delta",
+          { sessionId: frame.sessionId, content: frame.content },
+          frame.sessionId,
+        );
         return c.json({ ok: true });
       }
       case "agent_done": {

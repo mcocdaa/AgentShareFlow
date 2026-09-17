@@ -1,0 +1,15 @@
+services:
+  relay:
+    build: .
+    image: agent-share-flow-relay
+    ports:
+      - "8787:8787"
+    environment:
+      AGENTSHARE_TOKENS: ${AGENTSHARE_TOKENS:?set token:owner pairs, e.g. "s3cret:alice"}
+      AGENTSHARE_PUBLIC_URL: ${AGENTSHARE_PUBLIC_URL:-http://localhost:8787}
+    volumes:
+      - relay-data:/data
+    restart: unless-stopped
+
+volumes:
+  relay-data:

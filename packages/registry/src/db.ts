@@ -32,6 +32,7 @@ export interface PackInsert {
 }
 
 export type ShareStatus = "online" | "offline" | "revoked";
+export type ShareMode = "tunnel" | "endpoint";
 
 export interface ShareRow {
   id: string;
@@ -39,6 +40,9 @@ export interface ShareRow {
   title: string;
   project: string | null;
   status: ShareStatus;
+  mode: ShareMode;
+  endpoint_url: string | null;
+  agent_card: string | null;
   created_at: string;
   last_seen_at: string | null;
 }
@@ -48,6 +52,7 @@ export interface ShareSessionRow {
   share_id: string;
   visitor_name: string | null;
   dsh_session_id: string | null;
+  a2a_context_id: string | null;
   created_at: string;
 }
 
@@ -115,6 +120,30 @@ export class RegistryDb {
       )
     `);
     this.db.exec("CREATE INDEX IF NOT EXISTS share_messages_session ON share_messages (session_id)");
+    this.migrateShareColumns();
+  }
+
+  private migrateShareColumns(): void {
+    const shareColumns = this.db.prepare("PRAGMA table_info(shares)").all() as unknown as Array<{
+      name: string;
+    }>;
+    const hasShareColumn = (name: string): boolean => shareColumns.some((column) => column.name === name);
+    if (!hasShareColumn("mode")) {
+      this.db.exec("ALTER TABLE shares ADD COLUMN mode TEXT NOT NULL DEFAULT 'tunnel'");
+    }
+    if (!hasShareColumn("endpoint_url")) {
+      this.db.exec("ALTER TABLE shares ADD COLUMN endpoint_url TEXT");
+    }
+    if (!hasShareColumn("agent_card")) {
+      this.db.exec("ALTER TABLE shares ADD COLUMN agent_card TEXT");
+    }
+
+    const sessionColumns = this.db.prepare("PRAGMA table_info(share_sessions)").all() as unknown as Array<{
+      name: string;
+    }>;
+    if (!sessionColumns.some((column) => column.name === "a2a_context_id")) {
+      this.db.exec("ALTER TABLE share_sessions ADD COLUMN a2a_context_id TEXT");
+    }
   }
 
   insert(row: PackInsert): void {
@@ -194,13 +223,26 @@ export class RegistryDb {
     owner: string;
     title: string;
     project: string | null;
+    mode: ShareMode;
+    endpoint_url: string | null;
+    agent_card: string | null;
     created_at: string;
   }): void {
     this.db
       .prepare(
-        "INSERT INTO shares (id, owner, title, project, status, created_at) VALUES (?, ?, ?, ?, 'offline', ?)",
+        `INSERT INTO shares (id, owner, title, project, status, mode, endpoint_url, agent_card, created_at)
+         VALUES (?, ?, ?, ?, 'offline', ?, ?, ?, ?)`,
       )
-      .run(share.id, share.owner, share.title, share.project, share.created_at);
+      .run(
+        share.id,
+        share.owner,
+        share.title,
+        share.project,
+        share.mode,
+        share.endpoint_url,
+        share.agent_card,
+        share.created_at,
+      );
   }
 
   getShare(id: string): ShareRow | undefined {
@@ -252,6 +294,12 @@ export class RegistryDb {
     this.db
       .prepare("UPDATE share_sessions SET dsh_session_id = ? WHERE id = ?")
       .run(dshSessionId, sessionId);
+  }
+
+  setShareSessionA2aContext(sessionId: string, contextId: string): void {
+    this.db
+      .prepare("UPDATE share_sessions SET a2a_context_id = ? WHERE id = ?")
+      .run(contextId, sessionId);
   }
 
   insertShareMessage(message: {

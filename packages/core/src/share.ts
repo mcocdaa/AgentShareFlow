@@ -1,11 +1,21 @@
 export type ShareStatus = "online" | "offline" | "revoked";
+export type ShareMode = "tunnel" | "endpoint";
+
+export interface ShareAgentInfo {
+  name: string;
+  description?: string;
+  skills?: Array<{ id: string; name: string; description?: string }>;
+}
 
 export interface ShareSummary {
   id: string;
   owner: string;
   title: string;
+  mode: ShareMode;
   status: ShareStatus;
+  url?: string;
   project?: string;
+  agent?: ShareAgentInfo;
   createdAt: string;
   lastSeenAt?: string;
 }
@@ -217,7 +227,12 @@ export class ShareClient {
     return body;
   }
 
-  async createShare(input: { title: string; project?: string }): Promise<ShareSummary> {
+  async createShare(input: {
+    title: string;
+    project?: string;
+    mode?: ShareMode;
+    agentCardUrl?: string;
+  }): Promise<ShareSummary> {
     const res = await this.fetchImpl(joinUrl(this.options.registry, "/api/v1/shares"), {
       method: "POST",
       headers: this.headers({ "content-type": "application/json" }),

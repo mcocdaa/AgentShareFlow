@@ -129,7 +129,7 @@ export class ShareService {
     })
     const active: ActiveShare = {
       id: share.id,
-      url: client.shareUrl(share.id),
+      url: share.url ?? client.shareUrl(share.id),
       client,
       tunnel,
       source,

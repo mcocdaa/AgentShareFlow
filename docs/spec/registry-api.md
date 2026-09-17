@@ -98,6 +98,19 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 状态语义：`online` 以隧道连接为准（内存），断线即 `offline`，撤销后永久 `revoked`。
 限流：每分享 30 条/分钟、每会话 10 条/分钟。帧类型见 `packages/core/src/share.ts`（`TunnelFrame`）。
 
+### 分享模式
+
+`POST /api/v1/shares` 支持两种模式：
+
+- `mode: "tunnel"`（默认）：DSH 插件经出站隧道接入，`online` 以隧道连接为准。
+- `mode: "endpoint"`：任意 A2A agent。请求体需带 `agentCardUrl`（基址或 `agent-card.json` 直链，relay 会归一化到 `/.well-known/agent-card.json`）。relay 拉取并校验卡片后保存，`endpoint_url` 取卡片里的 `url` 字段；该模式恒为 `online`（除 revoke 外），错误在消息响应里以 `system` 消息回传。
+
+访客消息在 endpoint 模式下由 relay 直接调用 A2A（JSON-RPC `SendMessage`，-32601 时回退 `message/send`），把结果取文本后落库并广播；`share_sessions.a2a_context_id` 保存 A2A `contextId` 以维持多轮。
+
+### 响应补充
+
+分享详情/`url` 字段：由 `AGENTSHARE_PUBLIC_URL`（或请求来源）拼出 `…/#/share/<id>`；`mode` 标识模式；endpoint 模式附带 `agent: { name, description, skills }`。
+
 ### 错误补充
 
 | 状态码 | 场景 |
