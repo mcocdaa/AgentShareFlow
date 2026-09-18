@@ -1,3 +1,5 @@
+import type { Handoff } from "./handoff.js";
+
 export type ShareStatus = "online" | "offline" | "revoked";
 export type ShareMode = "tunnel" | "endpoint";
 
@@ -16,6 +18,8 @@ export interface ShareSummary {
   url?: string;
   project?: string;
   agent?: ShareAgentInfo;
+  handoff?: Handoff;
+  hasHandoff?: boolean;
   createdAt: string;
   lastSeenAt?: string;
 }
@@ -232,6 +236,7 @@ export class ShareClient {
     project?: string;
     mode?: ShareMode;
     agentCardUrl?: string;
+    handoff?: Handoff;
   }): Promise<ShareSummary> {
     const res = await this.fetchImpl(joinUrl(this.options.registry, "/api/v1/shares"), {
       method: "POST",

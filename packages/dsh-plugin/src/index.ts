@@ -34,11 +34,20 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.effect(() => ctx.commands.register({
     name: 'share',
-    description: 'Share this session as a live link (read-only, per-visitor forks)',
-    handler: async ({ agent }) => {
+    description: 'Share this session as a live link (/share, or /share handoff to attach the pending handoff)',
+    input: { hint: 'Optional: "handoff" attaches the reviewed handoff draft' },
+    handler: async ({ agent, rawInput }) => {
       try {
-        const share = await service.shareFromAgent(agent)
-        return { kind: 'success', text: `agentshare link: ${share.url}` }
+        const withHandoff = rawInput.trim() === 'handoff'
+        const pending = withHandoff ? handoff.pendingFor(agent) : undefined
+        if (withHandoff && pending === undefined) {
+          return { kind: 'error', text: 'no pending handoff draft; ask the agent to call handoff_draft first' }
+        }
+        const share = await service.shareFromAgent(agent, pending)
+        return {
+          kind: 'success',
+          text: `agentshare link: ${share.url}${pending === undefined ? '' : ' (handoff attached)'}`,
+        }
       } catch (error) {
         return { kind: 'error', text: failure(error) }
       }
@@ -75,8 +84,14 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'share_create',
     description: 'Share this session as a live read-only link so someone else can ask this agent questions. '
-      + 'Returns the share id and URL. Use when the user asks to hand off or share this session.',
-    parameters: {},
+      + 'Returns the share id and URL. Use when the user asks to hand off or share this session. '
+      + 'Set includeHandoff only when the user explicitly asks to publish the reviewed handoff draft with the link.',
+    parameters: {
+      includeHandoff: {
+        type: 'boolean',
+        description: 'Attach the pending handoff draft reviewed via handoff_draft. Defaults to false.',
+      },
+    },
     output: {
       schema: {
         type: 'object',
@@ -90,10 +105,14 @@ export function apply(ctx: Context, config: Config): void {
         { type: 'text' as const, text: `Share link: ${value.url}` },
       ],
     },
-    execute: async (_args: unknown, exec) => {
+    execute: async (args: { includeHandoff?: boolean }, exec) => {
       const owner = exec.agent
       if (owner === undefined) throw new Error('share_create requires an agent context')
-      return await service.shareFromAgent(owner)
+      const pending = args.includeHandoff === true ? handoff.pendingFor(owner) : undefined
+      if (args.includeHandoff === true && pending === undefined) {
+        throw new Error('no pending handoff draft; call handoff_draft first')
+      }
+      return await service.shareFromAgent(owner, pending)
     },
   })), 'agentshare: share_create')
 

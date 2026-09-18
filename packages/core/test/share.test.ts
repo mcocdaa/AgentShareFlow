@@ -4,6 +4,7 @@ import {
   TunnelClient,
   createSseParser,
   isTunnelFrame,
+  parseHandoff,
 } from "../src/index.js";
 
 describe("createSseParser", () => {
@@ -114,5 +115,24 @@ describe("ShareClient", () => {
     expect(calls[0]?.url).toBe("http://relay.test/api/v1/shares");
     expect((calls[0]?.init?.headers as Record<string, string>).authorization).toBe("Bearer tok");
     expect(client.shareUrl("abc")).toBe("http://relay.test/#/share/abc");
+  });
+
+  it("sends an attached handoff with the create request", async () => {
+    let body: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({ id: "abc", owner: "o", title: "T", status: "online", createdAt: "now" }));
+    });
+    const client = new ShareClient({
+      registry: "http://relay.test",
+      token: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const handoff = parseHandoff({ spec: "handoff/v0", id: "h1", title: "H", goal: "G" });
+    await client.createShare({ title: "T", handoff });
+    expect(body?.["title"]).toBe("T");
+    expect((body?.["handoff"] as { id: string }).id).toBe("h1");
+    expect((body?.["handoff"] as { context: { constraints: string[] } }).context.constraints).toEqual([]);
   });
 });

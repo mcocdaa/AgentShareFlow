@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto";
 import {
   type A2AAgentCard,
+  type Handoff,
   type ShareMode,
   fetchAgentCard,
+  formatHandoffIssues,
   isTunnelFrame,
+  parseHandoff,
   sendA2AMessage,
   type TunnelFrame,
 } from "@agentshare/core";
@@ -57,6 +60,15 @@ function agentInfo(share: ShareRow) {
   }
 }
 
+function storedHandoff(share: ShareRow): Handoff | undefined {
+  if (share.handoff === null) return undefined;
+  try {
+    return parseHandoff(JSON.parse(share.handoff));
+  } catch {
+    return undefined;
+  }
+}
+
 function summary(share: ShareRow, hub: ShareHub, baseUrl: string) {
   return {
     id: share.id,
@@ -67,8 +79,17 @@ function summary(share: ShareRow, hub: ShareHub, baseUrl: string) {
     status: effectiveStatus(share, hub),
     url: `${baseUrl.replace(/\/$/, "")}/#/share/${share.id}`,
     ...agentInfo(share) === undefined ? {} : { agent: agentInfo(share) },
+    hasHandoff: share.handoff !== null,
     createdAt: share.created_at,
     lastSeenAt: share.last_seen_at ?? undefined,
+  };
+}
+
+function detail(share: ShareRow, hub: ShareHub, baseUrl: string) {
+  const handoff = storedHandoff(share);
+  return {
+    ...summary(share, hub, baseUrl),
+    ...handoff === undefined ? {} : { handoff },
   };
 }
 
@@ -140,6 +161,7 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
       project?: unknown;
       mode?: unknown;
       agentCardUrl?: unknown;
+      handoff?: unknown;
     };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (title.length === 0 || title.length > 120) {
@@ -148,6 +170,19 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
     const project =
       typeof body.project === "string" && body.project.length <= 200 ? body.project : null;
     const mode: ShareMode = body.mode === "endpoint" ? "endpoint" : "tunnel";
+
+    let handoff: string | null = null;
+    if (body.handoff !== undefined && body.handoff !== null) {
+      const serialized = JSON.stringify(body.handoff);
+      if (Buffer.byteLength(serialized, "utf8") > 256 * 1024) {
+        return c.json({ error: "handoff exceeds 256 KiB" }, 400);
+      }
+      try {
+        handoff = JSON.stringify(parseHandoff(body.handoff));
+      } catch (error) {
+        return c.json({ error: "invalid handoff", details: formatHandoffIssues(error) }, 400);
+      }
+    }
 
     let endpointUrl: string | null = null;
     let agentCard: string | null = null;
@@ -180,11 +215,12 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
       mode,
       endpoint_url: endpointUrl,
       agent_card: agentCard,
+      handoff,
       created_at: new Date().toISOString(),
       last_seen_at: null,
     };
     db.insertShare(share);
-    return c.json(summary(share, hub, baseUrl(c.req.url)), 201);
+    return c.json(detail(share, hub, baseUrl(c.req.url)), 201);
   });
 
   app.get("/shares", (c) => {
@@ -197,7 +233,7 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
   app.get("/shares/:id", (c) => {
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
-    return c.json(summary(share, hub, baseUrl(c.req.url)));
+    return c.json(detail(share, hub, baseUrl(c.req.url)));
   });
 
   app.post("/shares/:id/revoke", (c) => {

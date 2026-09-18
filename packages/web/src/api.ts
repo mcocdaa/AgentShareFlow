@@ -26,6 +26,35 @@ export interface PackDetail extends PackSummary {
   };
 }
 
+export interface HandoffEvidence {
+  label: string;
+  kind: "path" | "url" | "transcript" | "note";
+  ref: string;
+}
+
+export interface ShareHandoff {
+  id: string;
+  title: string;
+  goal: string;
+  doneWhen?: string;
+  context: { constraints: string[]; environment: string[]; sources: HandoffEvidence[] };
+  decisions: Array<{ id: string; summary: string; rationale?: string; evidence: HandoffEvidence[] }>;
+  tasks: Array<{
+    id: string;
+    summary: string;
+    status: "in-progress" | "blocked" | "done";
+    howToVerify?: string;
+    notes?: string;
+  }>;
+  outcomes: HandoffEvidence[];
+  authorizations: Array<{
+    name: string;
+    status: "inherited" | "reauthorize" | "unavailable";
+    note?: string;
+  }>;
+  openQuestions: string[];
+}
+
 export interface ShareMeta {
   id: string;
   owner: string;
@@ -35,6 +64,8 @@ export interface ShareMeta {
   status: "online" | "offline" | "revoked";
   url?: string;
   agent?: { name: string; description?: string; skills?: Array<{ id: string; name: string }> };
+  handoff?: ShareHandoff;
+  hasHandoff?: boolean;
   createdAt: string;
   lastSeenAt?: string;
 }

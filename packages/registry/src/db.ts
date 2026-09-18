@@ -43,6 +43,7 @@ export interface ShareRow {
   mode: ShareMode;
   endpoint_url: string | null;
   agent_card: string | null;
+  handoff: string | null;
   created_at: string;
   last_seen_at: string | null;
 }
@@ -137,6 +138,9 @@ export class RegistryDb {
     if (!hasShareColumn("agent_card")) {
       this.db.exec("ALTER TABLE shares ADD COLUMN agent_card TEXT");
     }
+    if (!hasShareColumn("handoff")) {
+      this.db.exec("ALTER TABLE shares ADD COLUMN handoff TEXT");
+    }
 
     const sessionColumns = this.db.prepare("PRAGMA table_info(share_sessions)").all() as unknown as Array<{
       name: string;
@@ -226,12 +230,13 @@ export class RegistryDb {
     mode: ShareMode;
     endpoint_url: string | null;
     agent_card: string | null;
+    handoff: string | null;
     created_at: string;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO shares (id, owner, title, project, status, mode, endpoint_url, agent_card, created_at)
-         VALUES (?, ?, ?, ?, 'offline', ?, ?, ?, ?)`,
+        `INSERT INTO shares (id, owner, title, project, status, mode, endpoint_url, agent_card, handoff, created_at)
+         VALUES (?, ?, ?, ?, 'offline', ?, ?, ?, ?, ?)`,
       )
       .run(
         share.id,
@@ -241,6 +246,7 @@ export class RegistryDb {
         share.mode,
         share.endpoint_url,
         share.agent_card,
+        share.handoff,
         share.created_at,
       );
   }

@@ -227,6 +227,67 @@ dd {
   color: #f87171;
 }
 
+.handoff {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 16px 0 0;
+}
+
+.handoff summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.handoff-body {
+  padding-top: 8px;
+}
+
+.handoff h4 {
+  margin: 16px 0 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.handoff p {
+  margin: 6px 0;
+  font-size: 0.9rem;
+}
+
+.handoff ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.handoff li {
+  font-size: 0.875rem;
+  margin: 4px 0;
+}
+
+.handoff code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.handoff .decision {
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  margin: 8px 0;
+}
+
+.handoff a {
+  color: var(--accent);
+}
+
+.warn {
+  color: var(--endpoint);
+}
+
 .chat {
   display: flex;
   flex-direction: column;

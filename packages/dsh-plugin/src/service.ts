@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
-import { ShareClient, TunnelClient, formatHandoffIssues, parseHandoff, renderHandoffMarkdown, writeHandoffFiles, type TunnelFrame } from '@agentshare/core'
+import { ShareClient, TunnelClient, formatHandoffIssues, parseHandoff, renderHandoffMarkdown, writeHandoffFiles, type Handoff, type TunnelFrame } from '@agentshare/core'
 import { basename } from 'node:path'
 import { createHash } from 'node:crypto'
 
@@ -134,6 +134,11 @@ export class HandoffService {
     return `${draft.markdown}\nExport destination: ${draft.cwd}\nReview for secrets and private information. References are not copied or verified; no permissions transfer.\nConfirm with /handoff ${draft.digest}`
   }
 
+  pendingFor(agent: Agent): Handoff | undefined {
+    if (sharedAgents.has(agent)) return undefined
+    return this.drafts.get(agent)?.json
+  }
+
   async confirm(agent: Agent, digest: string): Promise<string> {
     this.assertOwner(agent)
     const draft = this.drafts.get(agent)
@@ -166,7 +171,7 @@ export class ShareService {
     private readonly config: ShareServiceConfig,
   ) {}
 
-  async shareFromAgent(agent: Agent): Promise<{ id: string, url: string }> {
+  async shareFromAgent(agent: Agent, handoff?: Handoff): Promise<{ id: string, url: string }> {
     const token = await this.resolveToken()
     const client = new ShareClient({ registry: this.config.registry, token })
     const header = agent.session.header
@@ -174,6 +179,7 @@ export class ShareService {
     const share = await client.createShare({
       title: this.config.title ?? `agent · ${project ?? String(header.id)}`,
       ...project === undefined ? {} : { project },
+      ...handoff === undefined ? {} : { handoff },
     })
 
     const presets = this.ctx.get('agentPresets')
