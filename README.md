@@ -13,7 +13,7 @@ packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
   cli/             agentshare CLI：login / pack / push / search / info / install / update / export / import / handoff / share / serve --mcp
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
-  web/             Vite + React：包浏览 + 访客聊天页（#/share/:id）
+  web/             Vite + React：包浏览 + 发布页（#/publish）+ 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
 skills/
   agentshare/      给 agent 用的门面 skill（SKILL.md）

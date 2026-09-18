@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type PackSummary, searchPacks } from "./api.js";
 import { PackCard } from "./components.js";
 import { PackDetailPage } from "./PackDetail.js";
+import { PublishPage } from "./Publish.js";
 import { SharePage } from "./SharePage.js";
 
 function useHashRoute(): string {
@@ -30,10 +31,11 @@ export function App() {
 
   const shareMatch = /^#\/share\/([a-f0-9]+)$/.exec(hash);
   const detailMatch = /^#\/agents\/([^/]+)\/([^/]+)$/.exec(hash);
+  const publishMatch = hash === "#/publish";
 
   useEffect(() => {
-    if (!detailMatch && !shareMatch) runSearch("");
-  }, [hash, detailMatch, shareMatch, runSearch]);
+    if (!detailMatch && !shareMatch && !publishMatch) runSearch("");
+  }, [hash, detailMatch, shareMatch, publishMatch, runSearch]);
 
   return (
     <div className="app">
@@ -54,10 +56,15 @@ export function App() {
           />
           <button type="submit">search</button>
         </form>
+        <a className={`header-link${publishMatch ? " active" : ""}`} href="#/publish">
+          publish
+        </a>
       </header>
       <main>
         {shareMatch ? (
           <SharePage id={shareMatch[1] ?? ""} />
+        ) : publishMatch ? (
+          <PublishPage />
         ) : detailMatch ? (
           <PackDetailPage
             owner={decodeURIComponent(detailMatch[1] ?? "")}

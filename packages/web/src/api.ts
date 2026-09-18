@@ -151,3 +151,31 @@ export async function postShareMessage(
   }
   return (await res.json()) as { sessionId: string; message: ChatMessage };
 }
+
+export interface PublishResult {
+  ok: boolean;
+  ref: string;
+  digest: string;
+  size: number;
+}
+
+export async function publishPack(
+  token: string,
+  manifest: unknown,
+  bytes: Uint8Array,
+  digest: string,
+): Promise<PublishResult> {
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(manifest));
+  form.set("tarball", new Blob([new Uint8Array(bytes)], { type: "application/gzip" }), "pack.tgz");
+  const res = await fetch("/api/v1/agents", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "x-pack-digest": digest },
+    body: form,
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
+    throw new Error(payload.details ?? payload.error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as PublishResult;
+}
