@@ -15,6 +15,7 @@ import {
   diffPackDirs,
   extractPackTarball,
   encodePublicKeyHeader,
+  exportPackSkills,
   formatScanFinding,
   generateSigningKeyPair,
   keyFingerprint,
@@ -700,4 +701,77 @@ export async function installCommand(
   if (result.endpoint) console.log(`online  ${result.endpoint.type} ${result.endpoint.url}`);
   if (result.secrets.length > 0) console.log(`secrets ${result.secrets.join(", ")}`);
   if (result.installed.length === 0) console.log("nothing installed");
+}
+
+export interface ExportOptions {
+  registry?: string;
+  token?: string;
+  out?: string;
+  force?: boolean;
+  allowRisky?: boolean;
+  json?: boolean;
+}
+
+export async function exportCommand(ref: string, options: ExportOptions): Promise<void> {
+  if (options.out === undefined) throw new Error("--out <dir> is required");
+  const config = loadConfig();
+  const registry = resolveRegistry(config, options.registry);
+  const client = new RegistryClient(registry, resolveToken(config, options.token));
+  const { owner, name, version } = parseRef(ref);
+  const detail = await client.info(owner, name, version);
+  const bytes = await client.downloadBytes(owner, name, detail.version);
+  verifyDownloadedPack(detail, bytes);
+
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-export-"));
+  try {
+    const tarball = path.join(tmp, "pack.tgz");
+    await fsp.writeFile(tarball, bytes);
+    const extracted = path.join(tmp, "pack");
+    await extractPackTarball(tarball, extracted);
+
+    const scan = await scanPack(extracted);
+    if (scan.blocked && options.allowRisky !== true) {
+      const highlights = scan.findings
+        .filter((finding) => finding.severity === "high")
+        .map(formatScanFinding)
+        .join("\n");
+      throw new Error(
+        `export blocked by the security scan (high severity):\n${highlights}\nreview the findings or pass --allow-risky`,
+      );
+    }
+
+    const result = await exportPackSkills(extracted, detail.manifest, path.resolve(options.out), {
+      force: options.force,
+    });
+
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            owner,
+            name,
+            version: detail.version,
+            digest: detail.digest,
+            exported: result.exported,
+            skipped: result.skipped,
+            scan,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    for (const finding of scan.findings) console.log(`scan    ${formatScanFinding(finding)}`);
+    if (scan.findings.length > 0) console.log(`scan    ${summarizeScan(scan)}`);
+    for (const item of result.skipped) console.log(`skip    ${item.dest} (exists, use --force)`);
+    console.log(`export  ${owner}/${name}@${detail.version}`);
+    for (const item of result.exported) console.log(`  -> ${item.dest}`);
+    if (detail.manifest.instructions.length > 0 || detail.manifest.mcp !== undefined) {
+      console.log("note    instructions/mcp configs stay in the pack; export contains skills only");
+    }
+    if (result.exported.length === 0) console.log("nothing exported");
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
 }

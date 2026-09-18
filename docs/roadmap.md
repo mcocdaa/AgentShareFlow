@@ -44,12 +44,14 @@
 
 - [x] 账号体系（OIDC）：官方 `@hono/oidc-auth`（登录/回调/登出/`/me`），会话可代替 Bearer 作为 owner；org/命名空间用 `OIDC_OWNER_MAP` 映射；未做 magic link（需邮件服务）
 - [x] 版本 diff：`agentshare diff <from> <to>`（文件级 added/removed/changed + 行数，`--json`）
-- [ ] 发布 pipeline：CI 发布（`examples/publish-workflow.yml` 模板已给，待真实仓库验证）、多 skill pack 示例
+- [x] 多 skill pack 示例：`examples/multi-skill`（changelog + pr-description），install/export 映射均验证
+- [ ] 发布 pipeline：CI 发布（`examples/publish-workflow.yml` 模板已给，待真实仓库验证）
 - [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）
 - [x] 发布扫描：`high/medium` 规则（提示注入、危险命令、隐藏字符）；`push`/`install`/`update` 本地拦截 + registry 服务端拦截，`--allow-risky` 显式越过
 - [x] 安装量 / 星标：下载数已有；星标一人一星（Bearer/OIDC 身份），search/detail 返回计数与 `starred`，CLI `star`/`unstar`，Web 展示
 - [x] 发布签名：ed25519（Node 内置 crypto）`keygen` / `push --sign`；registry 校验存储；install/update 验签并拒绝换钥（`--force` 显式接受）
-- [ ] 互操作：导入 ClawHub / Smithery / skills.sh；导出为标准 SKILL.md 目录
+- [x] 导出：`agentshare export <ref> --out <dir>` 扁平 SKILL.md 目录（扫描/验签/`--force`，多 skill 展开）
+- [ ] 导入：ClawHub / Smithery / skills.sh（需外部 API 与字段映射，待逐家确认）
 - [x] `agentshare serve --mcp`：stdio MCP server 暴露 `agentshare_search` / `agentshare_info` / `agentshare_install`（高危扫描阻断以 `isError` 返回）；冒烟含 initialize/tools/搜索/信息/安装/坏输入
 
 ## P2 — 在线 agent（5–7 周）

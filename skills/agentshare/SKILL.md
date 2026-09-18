@@ -30,6 +30,7 @@ agentshare search <query> [--json]
 agentshare info <owner>/<name>[@version] [--json]
 agentshare install <owner>/<name>[@version] --target <targets>
 agentshare update [owner/name] [--dry-run]    # reinstall locked packs to latest
+agentshare export <owner>/<name> --out <dir>  # unpack skills as plain SKILL.md directories
 agentshare diff <from> <to> [--json]           # compare two pack versions file by file
 agentshare star <owner>/<name>                 # star a pack (unstar to remove)
 agentshare serve --mcp                         # stdio MCP server: search/info/install as tools
@@ -38,6 +39,8 @@ agentshare serve --mcp                         # stdio MCP server: search/info/i
 Installs are recorded in a lockfile (`agentshare.lock.json`): project installs record in the project root, user-level installs in the CLI config directory. Each entry keeps owner/name/version, tarball digest, target, scope, destination, and registry, so `agentshare update` can reinstall to the same places and `--dry-run` shows the version plan first.
 
 Targets: `agents` (cross-client default), `claude`, `codex`, `opencode`, `openclaw`, `hermes`, or `all`. Add `--project` to install into the current project (e.g. `.claude/skills`) instead of the user directory. `--force` overwrites.
+
+Use `export` when the destination is not a supported harness or the user wants plain skill folders (e.g. to copy into `~/.claude/skills` manually or feed another registry). It downloads, scans, verifies the digest/signature, and writes one directory per skill root under `--out`.
 
 ## Continuing a handoff in Codex
 

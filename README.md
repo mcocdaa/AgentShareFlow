@@ -11,7 +11,7 @@
 ```
 packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
-  cli/             agentshare CLI：login / pack / push / search / info / install / update / handoff / share / serve --mcp
+  cli/             agentshare CLI：login / pack / push / search / info / install / update / export / handoff / share / serve --mcp
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
   web/             Vite + React：包浏览 + 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
@@ -19,6 +19,7 @@ skills/
   agentshare/      给 agent 用的门面 skill（SKILL.md）
 examples/
   hello-handoff/   最小示例 Agent Pack
+  multi-skill/     多 skill pack 示例（changelog + pr-description）
 docs/
   README.md        文档索引
   spec/            契约：agent-pack.md、registry-api.md
@@ -48,6 +49,8 @@ node packages/cli/dist/index.js search handoff
 node packages/cli/dist/index.js install myowner/hello-handoff --target agents
 node packages/cli/dist/index.js update myowner/hello-handoff --dry-run   # 安装有 lockfile 记录，可升级
 node packages/cli/dist/index.js diff myowner/hello-handoff@0.1.0 myowner/hello-handoff@0.2.0
+node packages/cli/dist/index.js export myowner/hello-handoff --out ./skills   # 导出成扁平 SKILL.md 目录
+node packages/cli/dist/index.js push examples/multi-skill               # 多 skill pack 示例
 ```
 
 CI 发布：复制 `examples/publish-workflow.yml` 到 pack 仓库的 `.github/workflows/`，配好 `AGENTSHARE_REGISTRY` / `AGENTSHARE_TOKEN` secrets，推 `v*` tag 即自动校验、扫描并发布。
@@ -159,6 +162,7 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 - 发布扫描：`push`/`install`/`update` 扫描提示注入与危险命令，`high` 阻断（`--allow-risky` 显式越过）；registry 发布侧再次拦截。规则见 `docs/spec/agent-pack.md`。
 - 账号（可选）：设置 `OIDC_ISSUER` 等四项后启用 OIDC 登录（官方 `@hono/oidc-auth`），浏览器会话可代替 token 作为 owner，org 用 `OIDC_OWNER_MAP` 映射。见 `.env.example`。
 - 发布签名：`agentshare keygen` + `push --sign`（ed25519，Node 内置）；install/update 校验签名，换签名者默认拒绝。星标一人一星，展示在搜索与详情。
+- 导出：`agentshare export <ref> --out <dir>` 把 pack 的多个 skill 写成扁平 SKILL.md 目录（同样扫描/验签，`--force` 覆盖），供不支持的 harness 或 skills.sh 风格目录直接使用。
 
 
 ## 状态
@@ -166,6 +170,7 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 - **P0**：离线包发布/安装链路可用（CLI + registry + Web）。
 - **M1 在线交接**：真实 DSH + 真实模型端到端验证；只读白名单、`share_create`、公网部署、endpoint（A2A）分享、A2A facade 均完成；剩插件 npm 分发。
 - **M2 跨工具交接**：`handoff/v0` 导出（DSH）→ 导入（Codex，真实续做验证）→ 可对话交接页 → 成果回流（submission/v0）完成。
+- **P1 离线包 MVP**：diff、update/lockfile、发布扫描、账号（OIDC）、星标、签名、`export`、`serve --mcp` 完成；剩互操作导入（ClawHub / Smithery / skills.sh）与 npm 首发（待登录）。
 - 联调细节与修复记录见 `docs/design/m1-online-handoff.md`。
 
 License: MIT

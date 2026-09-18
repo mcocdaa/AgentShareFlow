@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import {
   diffCommand,
+  exportCommand,
   handoffImportCommand,
   infoCommand,
   installPack,
@@ -92,6 +93,18 @@ program
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .action(installCommand);
+
+program
+  .command("export")
+  .description("download a pack and export its skills as plain SKILL.md directories")
+  .argument("<ref>", "owner/name[@version]")
+  .requiredOption("--out <dir>", "output directory for the exported skills")
+  .option("--force", "overwrite existing skill directories")
+  .option("--allow-risky", "export even when the security scan reports high-severity findings")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(exportCommand);
 
 const share = program.command("share").description("review outcomes submitted through a share link");
 

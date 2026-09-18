@@ -1,0 +1,17 @@
+{
+  "spec": "agent-pack/v0",
+  "name": "release-helper",
+  "version": "0.1.0",
+  "title": "Release Helper",
+  "description": "Two-skill pack for shipping: turn merged changes into a Keep a Changelog entry, and write a PR description that leads with the problem and the verified checks. Demonstrates a multi-skill pack layout.",
+  "mode": "offline",
+  "tags": ["release", "changelog", "pull-request", "example"],
+  "license": "MIT",
+  "compatibility": ["agents", "claude", "codex", "opencode", "openclaw", "hermes"],
+  "skills": ["skills/changelog", "skills/pr-description"],
+  "secrets": [],
+  "metadata": {
+    "author": "mcocdaa",
+    "repository": "https://github.com/mcocdaa/AgentShareFlow"
+  }
+}
