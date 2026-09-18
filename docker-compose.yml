@@ -1,12 +1,16 @@
 services:
   relay:
-    build: .
+    build:
+      context: .
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     image: agent-share-flow-relay
     ports:
-      - "8787:8787"
+      - "${AGENTSHARE_BIND:-127.0.0.1}:${AGENTSHARE_PORT:-8787}:8787"
     environment:
       AGENTSHARE_TOKENS: ${AGENTSHARE_TOKENS:?set token:owner pairs, e.g. "s3cret:alice"}
-      AGENTSHARE_PUBLIC_URL: ${AGENTSHARE_PUBLIC_URL:-http://localhost:8787}
+      AGENTSHARE_PUBLIC_URL: ${AGENTSHARE_PUBLIC_URL:-http://127.0.0.1:8787}
+      AGENTSHARE_DATA: ${AGENTSHARE_DATA:-/data}
     volumes:
       - relay-data:/data
     restart: unless-stopped
