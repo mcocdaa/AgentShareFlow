@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   type AgentManifest,
   OWNER_PATTERN,
+  extractPackTarball,
   formatIssues,
+  formatScanFinding,
   parseManifest,
+  scanPack,
 } from "@agentshare/core";
 import { Hono } from "hono";
 import { authenticate } from "./auth.js";
@@ -125,6 +130,36 @@ export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
         },
         409,
       );
+    }
+
+    const scanTmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-publish-"));
+    try {
+      const tarballPath = path.join(scanTmp, "pack.tgz");
+      await fsp.writeFile(tarballPath, bytes);
+      const extracted = path.join(scanTmp, "pack");
+      try {
+        await extractPackTarball(tarballPath, extracted);
+      } catch (error) {
+        return c.json(
+          { error: "invalid tarball", details: error instanceof Error ? error.message : String(error) },
+          400,
+        );
+      }
+      const report = await scanPack(extracted);
+      if (report.blocked) {
+        return c.json(
+          {
+            error: "pack blocked by the security scan",
+            details: report.findings
+              .filter((finding) => finding.severity === "high")
+              .map(formatScanFinding)
+              .join("; "),
+          },
+          400,
+        );
+      }
+    } finally {
+      await fsp.rm(scanTmp, { recursive: true, force: true });
     }
 
     const dir = path.join(packsDir, auth.owner, manifest.name);

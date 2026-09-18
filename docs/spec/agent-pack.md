@@ -56,7 +56,12 @@ my-agent/
 ## 安全
 
 - 包内一律不写密钥；`secrets` 只列名字，由安装方运行时注入。
-- 发布内容按不可信输入处理：解包时禁用路径逃逸（node-tar 默认行为）、后续加扫描与签名（见 roadmap）。
+- 发布内容按不可信输入处理：解包时禁用路径逃逸（node-tar 默认行为）。
+- **发布扫描（v0）**：`@agentshare/core/scan.ts` 按行扫描包内文本文件（跳过二进制、>512 KiB 与 node_modules 等），规则分三档：
+  - `high`：`curl|wget … | sh`、base64 管道执行、`/dev/tcp` 反弹 shell、`nc -e`、`socat … exec`、`rm -rf /`、凭据文件外传、零宽/双向控制字符、“ignore previous instructions”类注入。
+  - `medium`：隐瞒用户（do not tell / without informing）、覆盖系统提示（you are now / new system prompt）、keep secret、把内容发送到 URL。
+  - `low`：预留。
+- 拦截点：`agentshare push` 与 `install`/`update` 在打包/落盘前扫描，`high` 默认阻断，可用 `--allow-risky` 显式越过；registry 发布时在服务端再次解包扫描，`high` 一律 400（`pack blocked by the security scan`）。`agentshare pack` 只提示不阻断。
 - 签名（minisign / sigstore）与来源证明为 v1 目标。
 
 ## 安装映射（v0）

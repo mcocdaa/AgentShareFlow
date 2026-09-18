@@ -45,6 +45,7 @@ program
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .option("--dry-run", "validate and pack without uploading")
+  .option("--allow-risky", "publish even when the security scan reports high-severity findings")
   .action(pushCommand);
 
 program
@@ -71,6 +72,7 @@ program
   .option("--project", "install into the current project instead of the user directory")
   .option("--dir <path>", "override the install directory")
   .option("--force", "overwrite an existing install")
+  .option("--allow-risky", "install even when the security scan reports high-severity findings")
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .action(installCommand);
@@ -114,6 +116,7 @@ program
   .description("reinstall locked packs to their latest versions")
   .argument("[ref]", "owner/name[@version], defaults to every locked pack")
   .option("--dry-run", "show planned updates without installing")
+  .option("--allow-risky", "update even when the security scan reports high-severity findings")
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .option("--json", "machine-readable output")

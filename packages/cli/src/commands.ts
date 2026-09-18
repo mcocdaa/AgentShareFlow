@@ -12,9 +12,12 @@ import {
   importHandoff,
   createPackTarball,
   extractPackTarball,
+  formatScanFinding,
   readLockfile,
   readPack,
   resolveSkillsDir,
+  scanPack,
+  summarizeScan,
   upsertInstall,
   writeLockfile,
   type LockEntry,
@@ -191,8 +194,21 @@ export function whoamiCommand(): void {
   console.log(`token    ${config.token ? maskToken(config.token) : "(unset)"}`);
 }
 
+async function scanOrReport(dir: string, allowRisky: boolean, action: string): Promise<void> {
+  const report = await scanPack(dir);
+  if (report.findings.length === 0) return;
+  for (const finding of report.findings) console.log(`scan    ${formatScanFinding(finding)}`);
+  console.log(`scan    ${summarizeScan(report)}`);
+  if (report.blocked && !allowRisky) {
+    throw new Error(
+      `${action} blocked by the security scan (high severity); review the findings or pass --allow-risky`,
+    );
+  }
+}
+
 export async function packCommand(dir: string, options: { out?: string }): Promise<void> {
   const pack = await readPack(dir);
+  await scanOrReport(pack.dir, true, "pack");
   const out = path.resolve(options.out ?? `${pack.manifest.name}-${pack.manifest.version}.tgz`);
   const result = await createPackTarball(pack.dir, out);
   console.log(`packed  ${pack.manifest.name}@${pack.manifest.version}`);
@@ -203,12 +219,13 @@ export async function packCommand(dir: string, options: { out?: string }): Promi
 
 export async function pushCommand(
   dir: string,
-  options: { registry?: string; token?: string; dryRun?: boolean },
+  options: { registry?: string; token?: string; dryRun?: boolean; allowRisky?: boolean },
 ): Promise<void> {
   const config = loadConfig();
   const registry = resolveRegistry(config, options.registry);
   const token = resolveToken(config, options.token);
   const pack = await readPack(dir);
+  await scanOrReport(pack.dir, options.allowRisky === true, "publish");
 
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-push-"));
   try {
@@ -245,7 +262,13 @@ interface UpdateResult {
 
 export async function updateCommand(
   ref: string | undefined,
-  options: { registry?: string; token?: string; dryRun?: boolean; json?: boolean },
+  options: {
+    registry?: string;
+    token?: string;
+    dryRun?: boolean;
+    allowRisky?: boolean;
+    json?: boolean;
+  },
 ): Promise<void> {
   const config = loadConfig();
   const registry = resolveRegistry(config, options.registry);
@@ -280,6 +303,7 @@ export async function updateCommand(
         await fsp.writeFile(tarball, bytes);
         const extracted = path.join(tmp, "pack");
         await extractPackTarball(tarball, extracted);
+        await scanOrReport(extracted, options.allowRisky === true, "update");
         const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
         const wanted = path.basename(entry.dest);
         const rel = roots.find((root) =>
@@ -399,6 +423,7 @@ export async function installCommand(
     project?: boolean;
     dir?: string;
     force?: boolean;
+    allowRisky?: boolean;
     registry?: string;
     token?: string;
   },
@@ -416,6 +441,7 @@ export async function installCommand(
     await fsp.writeFile(tarball, bytes);
     const extracted = path.join(tmp, "pack");
     await extractPackTarball(tarball, extracted);
+    await scanOrReport(extracted, options.allowRisky === true, "install");
 
     const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
     const targets = resolveTargets(options.target);

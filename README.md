@@ -130,11 +130,12 @@ pnpm run dsh web --patch ./packages/community/dsh-agentshare/cordis.source.patch
 DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表、`/unshare` 撤销。
 协议与客户端在 `packages/core/src/share.ts`；细节见 `docs/design/m1-online-handoff.md` 与 `packages/dsh-plugin/README.md`。
 
-## 认证（v0）
+## 认证与安全（v0）
 
 - registry 读取 `AGENTSHARE_TOKENS`，格式 `token:owner,token2:owner2`；未设置时为开发模式，任意 token 可用，owner 取 `AGENTSHARE_DEV_OWNER`（默认 `dev`）。
 - CLI 配置存于 `~/.config/agentshare/config.json`（可用 `AGENTSHARE_CONFIG` 覆盖路径）。
 - 发布不可变：`owner/name@version` 已存在返回 409；分享链接 id 即能力 token，可随时 revoke。
+- 发布扫描：`push`/`install`/`update` 扫描提示注入与危险命令，`high` 阻断（`--allow-risky` 显式越过）；registry 发布侧再次拦截。规则见 `docs/spec/agent-pack.md`。
 
 ## 状态
 
