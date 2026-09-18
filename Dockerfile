@@ -1,4 +1,4 @@
-FROM node:24-slim
+FROM node:26-slim
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 ENV npm_config_registry=$NPM_REGISTRY \
