@@ -6,6 +6,7 @@ import {
   type ShareMeta,
   getShare,
   postShareMessage,
+  postSubmission,
 } from "./api.js";
 
 function upsertMessage(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
@@ -167,6 +168,11 @@ export function SharePage({ id }: { id: string }) {
   const [name, setName] = useState(() => localStorage.getItem("agentshare.visitorName") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [changes, setChanges] = useState("");
+  const [openQuestions, setOpenQuestions] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionNote, setSubmissionNote] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -226,6 +232,37 @@ export function SharePage({ id }: { id: string }) {
       setSending(false);
     }
   }, [draft, sending, id, sessionId, name]);
+
+  const submitOutcome = useCallback(async () => {
+    const text = summary.trim();
+    if (!text || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (name.trim()) localStorage.setItem("agentshare.visitorName", name.trim());
+      const toLines = (value: string): string[] =>
+        value.split("\n").map((line) => line.trim()).filter(Boolean);
+      const created = await postSubmission(id, {
+        summary: text,
+        changes: toLines(changes),
+        openQuestions: toLines(openQuestions),
+        ...(name.trim() === "" ? {} : { authorName: name.trim() }),
+        ...(sessionId === undefined ? {} : { sessionId }),
+      });
+      setSubmissionNote(
+        `已提交 #${created.id}，等待原任务人接收${
+          sessionId === undefined ? "（先在对话里发一条消息，结果会通知到会话）" : ""
+        }`,
+      );
+      setSummary("");
+      setChanges("");
+      setOpenQuestions("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [summary, changes, openQuestions, submitting, id, name, sessionId]);
 
   if (error && !meta) return <p className="error">{error}</p>;
   if (!meta) return <p className="muted">loading…</p>;
@@ -294,6 +331,45 @@ export function SharePage({ id }: { id: string }) {
           send
         </button>
       </form>
+
+      {meta.handoff && (
+        <details className="submission">
+          <summary>提交成果</summary>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitOutcome();
+            }}
+          >
+            <textarea
+              value={summary}
+              onChange={(event) => setSummary(event.target.value)}
+              placeholder="这次续做完成了什么？"
+              maxLength={4000}
+              rows={3}
+              required
+            />
+            <textarea
+              value={changes}
+              onChange={(event) => setChanges(event.target.value)}
+              placeholder="变更说明，每行一条（可选）"
+              maxLength={8000}
+              rows={3}
+            />
+            <textarea
+              value={openQuestions}
+              onChange={(event) => setOpenQuestions(event.target.value)}
+              placeholder="未解决的问题，每行一条（可选）"
+              maxLength={4000}
+              rows={2}
+            />
+            <button type="submit" disabled={submitting || summary.trim() === ""}>
+              {submitting ? "提交中…" : "提交"}
+            </button>
+          </form>
+          {submissionNote && <p className="muted small">{submissionNote}</p>}
+        </details>
+      )}
     </div>
   );
 }

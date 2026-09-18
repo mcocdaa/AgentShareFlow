@@ -3,6 +3,8 @@ import { Command } from "commander";
 import {
   handoffImportCommand,
   infoCommand,
+  shareDecideCommand,
+  shareSubmissionsCommand,
   installCommand,
   loginCommand,
   packCommand,
@@ -71,6 +73,30 @@ program
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .action(installCommand);
+
+const share = program.command("share").description("review outcomes submitted through a share link");
+
+share
+  .command("submissions")
+  .description("list outcome submissions for one of your shares")
+  .argument("<shareId>", "share id from the share URL")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(shareSubmissionsCommand);
+
+share
+  .command("decide")
+  .description("accept or reject one submission")
+  .argument("<shareId>", "share id from the share URL")
+  .argument("<submissionId>", "submission id from `share submissions`")
+  .option("--accept", "accept the submission")
+  .option("--reject", "reject the submission")
+  .option("--note <text>", "optional note sent to the visitor")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(shareDecideCommand);
 
 program.command("handoff")
   .description("preview and import selected work context")

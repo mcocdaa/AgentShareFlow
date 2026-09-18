@@ -1,4 +1,5 @@
 import type { Handoff } from "./handoff.js";
+import type { ShareSubmission, SubmissionInput, SubmissionStatus } from "./submission.js";
 
 export type ShareStatus = "online" | "offline" | "revoked";
 export type ShareMode = "tunnel" | "endpoint";
@@ -266,6 +267,57 @@ export class ShareClient {
       { method: "POST", headers: this.headers() },
     );
     return this.json<ShareSummary>(res);
+  }
+
+  async submitOutcome(
+    shareId: string,
+    input: Omit<SubmissionInput, "spec">,
+  ): Promise<ShareSubmission> {
+    const res = await this.fetchImpl(
+      joinUrl(this.options.registry, `/api/v1/shares/${encodeURIComponent(shareId)}/submissions`),
+      {
+        method: "POST",
+        headers: this.headers({ "content-type": "application/json" }),
+        body: JSON.stringify({ spec: "submission/v0", ...input }),
+      },
+    );
+    return this.json<ShareSubmission>(res);
+  }
+
+  async listSubmissions(
+    shareId: string,
+    options: { sessionId?: string } = {},
+  ): Promise<{ items: ShareSubmission[] }> {
+    const query =
+      options.sessionId === undefined ? "" : `?sessionId=${encodeURIComponent(options.sessionId)}`;
+    const res = await this.fetchImpl(
+      joinUrl(
+        this.options.registry,
+        `/api/v1/shares/${encodeURIComponent(shareId)}/submissions${query}`,
+      ),
+      { headers: this.headers() },
+    );
+    return this.json(res);
+  }
+
+  async decideSubmission(
+    shareId: string,
+    submissionId: number,
+    decision: Exclude<SubmissionStatus, "pending">,
+    note?: string,
+  ): Promise<ShareSubmission> {
+    const res = await this.fetchImpl(
+      joinUrl(
+        this.options.registry,
+        `/api/v1/shares/${encodeURIComponent(shareId)}/submissions/${submissionId}/decision`,
+      ),
+      {
+        method: "POST",
+        headers: this.headers({ "content-type": "application/json" }),
+        body: JSON.stringify({ decision, ...note === undefined ? {} : { note } }),
+      },
+    );
+    return this.json<ShareSubmission>(res);
   }
 
   shareUrl(id: string): string {

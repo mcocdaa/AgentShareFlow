@@ -117,6 +117,52 @@ describe("ShareClient", () => {
     expect(client.shareUrl("abc")).toBe("http://relay.test/#/share/abc");
   });
 
+  it("submits outcomes, lists them, and decides with the owner token", async () => {
+    const calls: Array<{ url: string; method: string; auth?: string; body?: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        method: init?.method ?? "GET",
+        ...(typeof (init?.headers as Record<string, string> | undefined)?.authorization === "string"
+          ? { auth: (init?.headers as Record<string, string>).authorization }
+          : {}),
+        ...init?.body === undefined
+          ? {}
+          : { body: JSON.parse(String(init.body)) as Record<string, unknown> },
+      });
+      return new Response(
+        JSON.stringify({
+          id: 7,
+          shareId: "s1",
+          spec: "submission/v0",
+          summary: "done",
+          changes: [],
+          openQuestions: [],
+          status: "pending",
+          createdAt: "now",
+        }),
+      );
+    });
+    const client = new ShareClient({
+      registry: "http://relay.test",
+      token: "tok",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await client.submitOutcome("s1", { summary: "done", changes: ["a"], authorName: "bob" });
+    expect(calls[0]?.url).toBe("http://relay.test/api/v1/shares/s1/submissions");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.body).toMatchObject({ spec: "submission/v0", summary: "done", changes: ["a"] });
+
+    await client.listSubmissions("s1", { sessionId: "sess 1" });
+    expect(calls[1]?.url).toBe("http://relay.test/api/v1/shares/s1/submissions?sessionId=sess%201");
+
+    await client.decideSubmission("s1", 7, "accepted", "looks good");
+    expect(calls[2]?.url).toBe("http://relay.test/api/v1/shares/s1/submissions/7/decision");
+    expect(calls[2]?.auth).toBe("Bearer tok");
+    expect(calls[2]?.body).toEqual({ decision: "accepted", note: "looks good" });
+  });
+
   it("sends an attached handoff with the create request", async () => {
     let body: Record<string, unknown> | undefined;
     const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {

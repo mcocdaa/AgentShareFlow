@@ -109,14 +109,26 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 
 ### 响应补充
 
-分享详情/`url` 字段：由 `AGENTSHARE_PUBLIC_URL`（或请求来源）拼出 `…/#/share/<id>`；`mode` 标识模式；endpoint 模式附带 `agent: { name, description, skills }`。
+分享详情/`url` 字段：由 `AGENTSHARE_PUBLIC_URL`（或请求来源）拼出 `…/#/share/<id>`；`mode` 标识模式；endpoint 模式附带 `agent: { name, description, skills }`；创建/详情附带完整 `handoff`（若有），列表只给 `hasHandoff`。
+
+### 成果回流（submission/v0）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/v1/shares/:id/submissions` | 访客提交成果 `{ spec: "submission/v0", summary, changes?, openQuestions?, authorName?, sessionId? }`；`sessionId` 必须是该分享的会话，限流 10 条/分钟 |
+| GET | `/api/v1/shares/:id/submissions?sessionId=` | 访客按自己的会话查询；拥有者带 token 可查全部 |
+| POST | `/api/v1/shares/:id/submissions/:submissionId/decision` | 仅拥有者：`{ decision: "accepted" \| "rejected", note? }` |
+
+状态：`pending` → `accepted` / `rejected`（仅一次，重复决策 409）。决策会写入访客会话一条 `system` 消息并通过 SSE 推送（无 `sessionId` 的提交只落库、不通知）。校验：`summary` 1–4000 字，`changes` ≤50 条、`openQuestions` ≤20 条、每条 ≤1000 字；`authorName` ≤40。
+
+CLI（拥有者侧）：`agentshare share submissions <shareId>`、`agentshare share decide <shareId> <submissionId> --accept|--reject [--note ...]`。
 
 ### 错误补充
 
 | 状态码 | 场景 |
 |---|---|
 | 403 | 非分享拥有者访问拥有者接口 |
-| 409 | 分享离线时发言 |
+| 409 | 分享离线时发言 / 重复决策 |
 | 410 | 分享已撤销后发言 |
 | 429 | 触发限流 |
 

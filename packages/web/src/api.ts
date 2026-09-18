@@ -78,6 +78,28 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface SubmissionInput {
+  summary: string;
+  changes: string[];
+  openQuestions: string[];
+  authorName?: string;
+  sessionId?: string;
+}
+
+export interface ShareSubmission {
+  id: number;
+  shareId: string;
+  sessionId?: string;
+  authorName?: string;
+  summary: string;
+  changes: string[];
+  openQuestions: string[];
+  status: "pending" | "accepted" | "rejected";
+  ownerNote?: string;
+  createdAt: string;
+  decidedAt?: string;
+}
+
 async function get<T>(pathname: string): Promise<T> {
   const res = await fetch(pathname);
   if (!res.ok) {
@@ -97,6 +119,19 @@ export function getPack(owner: string, name: string): Promise<PackDetail> {
 
 export function getShare(id: string): Promise<ShareMeta> {
   return get(`/api/v1/shares/${encodeURIComponent(id)}`);
+}
+
+export async function postSubmission(id: string, body: SubmissionInput): Promise<ShareSubmission> {
+  const res = await fetch(`/api/v1/shares/${encodeURIComponent(id)}/submissions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ spec: "submission/v0", ...body }),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
+    throw new Error(payload.details ?? payload.error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as ShareSubmission;
 }
 
 export async function postShareMessage(

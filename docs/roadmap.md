@@ -25,8 +25,9 @@
 - [x] DSH 导出：owner agent 调 `handoff_draft` 生成草稿（预览不落盘），用户 `/handoff <digest>` 确认后写入 `agentshare-handoff-*/`；访客 fork 不可用
 - [x] Codex 导入：`agentshare handoff import <file>` 默认预览（警告/需重新授权/引用需人工核对），`--confirm <digest>` 写入独立目录 + `CODEX-PROMPT.md`；不覆盖项目指令、不执行命令、不继承授权
 - [x] 真实续做验证：DSH 导出 → CLI 导入 → 真实 Codex 完成待办 → 独立复跑验收测试 3/3
-- [ ] 可对话交接页：交接内容 + 证据问答（relay/分享页呈现 handoff）
-- [ ] 成果回流：接收者提交成果、变更说明与未解决问题，由原任务人确认 ；公开案例需单独同意
+- [x] 可对话交接页：分享携带 handoff，访客页呈现目标/待办/决策与证据（`handoff/v0`）
+- [x] 成果回流：`submission/v0` 提交（摘要/变更/未解决问题）→ 拥有者 CLI 接收或退回（附言）→ 决策以系统消息回到访客会话
+- [ ] 公开案例展示「原任务 → 交接 → 后续成果」（需单独同意）
 
 ## P0 — 骨架（已完成）
 

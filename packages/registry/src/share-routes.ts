@@ -3,10 +3,14 @@ import {
   type A2AAgentCard,
   type Handoff,
   type ShareMode,
+  type ShareSubmission,
+  type SubmissionStatus,
   fetchAgentCard,
   formatHandoffIssues,
+  formatSubmissionIssues,
   isTunnelFrame,
   parseHandoff,
+  parseSubmissionInput,
   sendA2AMessage,
   type TunnelFrame,
 } from "@agentshare/core";
@@ -14,12 +18,18 @@ import { Hono } from "hono";
 import type { SSEStreamingApi } from "hono/streaming";
 import { streamSSE } from "hono/streaming";
 import { authenticate } from "./auth.js";
-import { type RegistryDb, type ShareMessageRow, type ShareRow } from "./db.js";
+import {
+  type RegistryDb,
+  type ShareMessageRow,
+  type ShareRow,
+  type ShareSubmissionRow,
+} from "./db.js";
 import type { HubStream, ShareHub } from "./share-hub.js";
 
 const WINDOW_MS = 60_000;
 const SHARE_LIMIT_PER_WINDOW = 30;
 const SESSION_LIMIT_PER_WINDOW = 10;
+const SUBMISSION_LIMIT_PER_WINDOW = 10;
 
 function makeHubStream(stream: SSEStreamingApi): HubStream {
   return {
@@ -90,6 +100,31 @@ function detail(share: ShareRow, hub: ShareHub, baseUrl: string) {
   return {
     ...summary(share, hub, baseUrl),
     ...handoff === undefined ? {} : { handoff },
+  };
+}
+
+function submissionPayload(row: ShareSubmissionRow): ShareSubmission {
+  const parseList = (raw: string): string[] => {
+    try {
+      const value: unknown = JSON.parse(raw);
+      return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    id: row.id,
+    shareId: row.share_id,
+    ...row.session_id === null ? {} : { sessionId: row.session_id },
+    ...row.author_name === null ? {} : { authorName: row.author_name },
+    spec: "submission/v0",
+    summary: row.summary,
+    changes: parseList(row.changes),
+    openQuestions: parseList(row.open_questions),
+    status: row.status as SubmissionStatus,
+    ...row.owner_note === null ? {} : { ownerNote: row.owner_note },
+    createdAt: row.created_at,
+    ...row.decided_at === null ? {} : { decidedAt: row.decided_at },
   };
 }
 
@@ -374,6 +409,117 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
       return c.json({ error: "share is offline" }, 409);
     }
     return c.json({ sessionId, message: messagePayload(message) }, 201);
+  });
+
+  app.post("/shares/:id/submissions", async (c) => {
+    const share = db.getShare(c.req.param("id"));
+    if (!share) return c.json({ error: "not found" }, 404);
+    if (share.status === "revoked") return c.json({ error: "share is revoked" }, 410);
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    let input: ReturnType<typeof parseSubmissionInput>;
+    try {
+      input = parseSubmissionInput({ ...body, spec: "submission/v0" });
+    } catch (error) {
+      return c.json({ error: "invalid submission", details: formatSubmissionIssues(error) }, 400);
+    }
+
+    let sessionId: string | null = null;
+    if (input.sessionId !== undefined) {
+      const session = db.getShareSession(input.sessionId);
+      if (!session || session.share_id !== share.id) {
+        return c.json({ error: "unknown sessionId for this share" }, 400);
+      }
+      sessionId = input.sessionId;
+    }
+
+    if (!allow(`submissions:${share.id}`, SUBMISSION_LIMIT_PER_WINDOW)) {
+      return c.json({ error: "rate limit exceeded" }, 429);
+    }
+    if (sessionId !== null && !allow(`submissions:${sessionId}`, SUBMISSION_LIMIT_PER_WINDOW)) {
+      return c.json({ error: "rate limit exceeded" }, 429);
+    }
+
+    const submission = db.insertShareSubmission({
+      share_id: share.id,
+      session_id: sessionId,
+      author_name: input.authorName ?? null,
+      summary: input.summary,
+      changes: input.changes,
+      open_questions: input.openQuestions,
+      created_at: new Date().toISOString(),
+    });
+    return c.json(submissionPayload(submission), 201);
+  });
+
+  app.get("/shares/:id/submissions", (c) => {
+    const share = db.getShare(c.req.param("id"));
+    if (!share) return c.json({ error: "not found" }, 404);
+    const isOwner = owner(c.req.header("authorization")) === share.owner;
+    if (isOwner) {
+      return c.json({
+        items: db.listShareSubmissions(share.id).map(submissionPayload),
+      });
+    }
+    const sessionId = c.req.query("sessionId");
+    if (sessionId === undefined || sessionId === "") {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    const session = db.getShareSession(sessionId);
+    if (!session || session.share_id !== share.id) {
+      return c.json({ error: "unknown sessionId for this share" }, 400);
+    }
+    return c.json({
+      items: db.listShareSubmissions(share.id, sessionId).map(submissionPayload),
+    });
+  });
+
+  app.post("/shares/:id/submissions/:submissionId/decision", async (c) => {
+    const who = owner(c.req.header("authorization"));
+    if (!who) return c.json({ error: "unauthorized" }, 401);
+    const share = db.getShare(c.req.param("id"));
+    if (!share) return c.json({ error: "not found" }, 404);
+    if (share.owner !== who) return c.json({ error: "forbidden" }, 403);
+
+    const submission = db.getShareSubmission(Number(c.req.param("submissionId")));
+    if (!submission || submission.share_id !== share.id) {
+      return c.json({ error: "not found" }, 404);
+    }
+    if (submission.status !== "pending") {
+      return c.json({ error: "submission already decided" }, 409);
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: unknown; note?: unknown };
+    const decision = body.decision;
+    if (decision !== "accepted" && decision !== "rejected") {
+      return c.json({ error: 'decision must be "accepted" or "rejected"' }, 400);
+    }
+    const note =
+      typeof body.note === "string" && body.note.trim().length > 0
+        ? body.note.trim().slice(0, 1000)
+        : null;
+
+    const updated = db.decideShareSubmission(
+      submission.id,
+      decision,
+      note,
+      new Date().toISOString(),
+    )!;
+
+    if (submission.session_id !== null) {
+      const label = decision === "accepted" ? "成果已接收" : "成果已退回";
+      const content = `${label}（提交 #${submission.id}）${note === null ? "" : `：${note}`}`;
+      const message = db.insertShareMessage({
+        sessionId: submission.session_id,
+        role: "system",
+        content,
+        created_at: new Date().toISOString(),
+      });
+      hub.publish(share.id, "message", messagePayload(message), submission.session_id);
+      hub.publish(share.id, "done", { sessionId: submission.session_id }, submission.session_id);
+    }
+
+    return c.json(submissionPayload(updated));
   });
 
   app.get("/tunnel/:shareId/events", (c) =>

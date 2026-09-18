@@ -65,6 +65,20 @@ export interface ShareMessageRow {
   created_at: string;
 }
 
+export interface ShareSubmissionRow {
+  id: number;
+  share_id: string;
+  session_id: string | null;
+  author_name: string | null;
+  summary: string;
+  changes: string;
+  open_questions: string;
+  status: string;
+  owner_note: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
 export class RegistryDb {
   private readonly db: DatabaseSync;
 
@@ -121,6 +135,24 @@ export class RegistryDb {
       )
     `);
     this.db.exec("CREATE INDEX IF NOT EXISTS share_messages_session ON share_messages (session_id)");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS share_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        share_id TEXT NOT NULL,
+        session_id TEXT,
+        author_name TEXT,
+        summary TEXT NOT NULL,
+        changes TEXT NOT NULL DEFAULT '[]',
+        open_questions TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'pending',
+        owner_note TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      )
+    `);
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS share_submissions_share ON share_submissions (share_id, id)",
+    );
     this.migrateShareColumns();
   }
 
@@ -326,6 +358,64 @@ export class RegistryDb {
       content: message.content,
       created_at: message.created_at,
     };
+  }
+
+  insertShareSubmission(input: {
+    share_id: string;
+    session_id: string | null;
+    author_name: string | null;
+    summary: string;
+    changes: string[];
+    open_questions: string[];
+    created_at: string;
+  }): ShareSubmissionRow {
+    const result = this.db
+      .prepare(
+        `INSERT INTO share_submissions
+         (share_id, session_id, author_name, summary, changes, open_questions, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.share_id,
+        input.session_id,
+        input.author_name,
+        input.summary,
+        JSON.stringify(input.changes),
+        JSON.stringify(input.open_questions),
+        input.created_at,
+      );
+    return this.getShareSubmission(Number(result.lastInsertRowid))!;
+  }
+
+  getShareSubmission(id: number): ShareSubmissionRow | undefined {
+    return this.db.prepare("SELECT * FROM share_submissions WHERE id = ?").get(id) as unknown as
+      | ShareSubmissionRow
+      | undefined;
+  }
+
+  listShareSubmissions(shareId: string, sessionId?: string): ShareSubmissionRow[] {
+    if (sessionId !== undefined) {
+      return this.db
+        .prepare(
+          "SELECT * FROM share_submissions WHERE share_id = ? AND session_id = ? ORDER BY id ASC",
+        )
+        .all(shareId, sessionId) as unknown as ShareSubmissionRow[];
+    }
+    return this.db
+      .prepare("SELECT * FROM share_submissions WHERE share_id = ? ORDER BY id ASC")
+      .all(shareId) as unknown as ShareSubmissionRow[];
+  }
+
+  decideShareSubmission(
+    id: number,
+    status: "accepted" | "rejected",
+    ownerNote: string | null,
+    decidedAt: string,
+  ): ShareSubmissionRow | undefined {
+    this.db
+      .prepare("UPDATE share_submissions SET status = ?, owner_note = ?, decided_at = ? WHERE id = ?")
+      .run(status, ownerNote, decidedAt, id);
+    return this.getShareSubmission(id);
   }
 
   listShareMessages(shareId: string, sessionId?: string): ShareMessageRow[] {

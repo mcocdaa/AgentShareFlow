@@ -5,6 +5,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   HARNESSES,
+  ShareClient,
   previewHandoffImport,
   importHandoff,
   type Harness,
@@ -53,6 +54,70 @@ export async function handoffImportCommand(
     console.log(`context   ${written.markdownPath}`);
     console.log(`next      ask Codex in your project to read ${written.promptPath}`);
   }
+}
+
+function shareClient(options: { registry?: string; token?: string }): ShareClient {
+  const config = loadConfig();
+  return new ShareClient({
+    registry: resolveRegistry(config, options.registry),
+    token: resolveToken(config, options.token),
+  });
+}
+
+export async function shareSubmissionsCommand(
+  shareId: string,
+  options: { registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const { items } = await shareClient(options).listSubmissions(shareId);
+  if (options.json) {
+    console.log(JSON.stringify(items, null, 2));
+    return;
+  }
+  if (items.length === 0) {
+    console.log(`no submissions for share ${shareId}`);
+    return;
+  }
+  for (const item of items) {
+    console.log(
+      `#${item.id}  [${item.status}]  ${item.createdAt}${item.authorName === undefined ? "" : `  ${item.authorName}`}`,
+    );
+    console.log(`  ${item.summary}`);
+    for (const change of item.changes) console.log(`  - ${change}`);
+    for (const question of item.openQuestions) console.log(`  ? ${question}`);
+    if (item.ownerNote !== undefined) console.log(`  note: ${item.ownerNote}`);
+  }
+}
+
+export async function shareDecideCommand(
+  shareId: string,
+  submissionId: string,
+  options: {
+    accept?: boolean;
+    reject?: boolean;
+    note?: string;
+    registry?: string;
+    token?: string;
+    json?: boolean;
+  },
+): Promise<void> {
+  if (options.accept === options.reject) {
+    throw new Error("pass exactly one of --accept or --reject");
+  }
+  const id = Number(submissionId);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error("submissionId must be a positive integer");
+  const submission = await shareClient(options).decideSubmission(
+    shareId,
+    id,
+    options.accept ? "accepted" : "rejected",
+    options.note,
+  );
+  if (options.json) {
+    console.log(JSON.stringify(submission, null, 2));
+    return;
+  }
+  console.log(
+    `#${submission.id}  ${submission.status}${submission.ownerNote === undefined ? "" : ` — ${submission.ownerNote}`}`,
+  );
 }
 
 export interface RefParts {
