@@ -33,6 +33,15 @@ agentshare install <owner>/<name>[@version] --target <targets>
 
 Targets: `agents` (cross-client default), `claude`, `codex`, `opencode`, `openclaw`, `hermes`, or `all`. Add `--project` to install into the current project (e.g. `.claude/skills`) instead of the user directory. `--force` overwrites.
 
+## Continuing a handoff in Codex
+
+```bash
+agentshare handoff import ./handoff.json --target codex --dir ./project --json
+agentshare handoff import ./handoff.json --target codex --dir ./project --confirm <digest> --json
+```
+
+The first command only previews; review its content, destination and warnings before confirming the returned digest. The destination must already exist. Confirmation writes `handoff.json`, `handoff.md` and `CODEX-PROMPT.md` in a new independent subdirectory, not a skill installation. Ask Codex in the receiving project to read the returned prompt path. Existing instructions are not overwritten and no commands are executed. Permissions require fresh authorization; references are neither copied nor verified, so missing files and source-machine paths require manual resolution. This imports selected context, not a running Agent or its credentials.
+
 ## Creating a pack
 
 1. Create a directory with `agent.json` (the manifest) and a `SKILL.md`.

@@ -13,8 +13,9 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
-import { ShareClient, TunnelClient, type TunnelFrame } from '@agentshare/core'
+import { ShareClient, TunnelClient, formatHandoffIssues, parseHandoff, renderHandoffMarkdown, writeHandoffFiles, type TunnelFrame } from '@agentshare/core'
 import { basename } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const VISITOR_IDLE_MS = 30 * 60 * 1000
 
@@ -91,6 +92,70 @@ function completedTurnPrefix(agent: Agent): SessionEvent[] {
   const lastEnd = events.findLast(event => event.type === 'turn/end')
   if (lastEnd === undefined) return []
   return events.slice(0, lastEnd.seq + 1)
+}
+
+const sharedAgents = new WeakSet<Agent>()
+
+interface HandoffDraft {
+  json: ReturnType<typeof parseHandoff>
+  markdown: string
+  digest: string
+  cwd: string
+}
+
+export class HandoffService {
+  private drafts = new WeakMap<Agent, HandoffDraft>()
+
+  clear(): void {
+    this.drafts = new WeakMap()
+  }
+
+  prepare(agent: Agent, raw: string): string {
+    this.assertOwner(agent)
+    this.drafts.delete(agent)
+    const cwd = agent.session.header.cwd
+    if (cwd === undefined) throw new Error('session has no cwd to export into')
+    if (Buffer.byteLength(raw, 'utf8') > 256 * 1024) throw new Error('handoff exceeds 256 KiB')
+    const json = parseHandoff(JSON.parse(raw))
+    json.createdAt ??= new Date().toISOString()
+    for (const authorization of json.authorizations) {
+      if (authorization.status === 'inherited') authorization.status = 'reauthorize'
+    }
+    const markdown = renderHandoffMarkdown(json)
+    const digest = createHash('sha256').update(JSON.stringify({ json, cwd })).digest('hex')
+    this.drafts.set(agent, { json, markdown, digest, cwd })
+    return this.preview(agent)
+  }
+
+  preview(agent: Agent): string {
+    this.assertOwner(agent)
+    const draft = this.drafts.get(agent)
+    if (draft === undefined) throw new Error('no pending draft; ask the agent to call handoff_draft first')
+    return `${draft.markdown}\nExport destination: ${draft.cwd}\nReview for secrets and private information. References are not copied or verified; no permissions transfer.\nConfirm with /handoff ${draft.digest}`
+  }
+
+  async confirm(agent: Agent, digest: string): Promise<string> {
+    this.assertOwner(agent)
+    const draft = this.drafts.get(agent)
+    if (draft === undefined) throw new Error('no pending draft; ask the agent to call handoff_draft first')
+    if (digest !== draft.digest) throw new Error('draft changed or confirmation mismatch; run /handoff to review')
+    if (agent.session.header.cwd !== draft.cwd) throw new Error('session directory changed; prepare a new draft')
+    this.drafts.delete(agent)
+    try {
+      const written = await writeHandoffFiles(draft.json, { dir: draft.cwd })
+      return `handoff exported:\n${written.jsonPath}\n${written.markdownPath}`
+    } catch (error) {
+      throw new Error(`handoff export failed; prepare a new draft: ${formatHandoffIssues(error)}`)
+    }
+  }
+
+  private assertOwner(agent: Agent): void {
+    if (sharedAgents.has(agent)) throw new Error('handoff is not available in shared sessions')
+  }
+}
+
+export function markSharedAgent(agent: Agent): void {
+  sharedAgents.add(agent)
 }
 
 export class ShareService {
@@ -259,6 +324,7 @@ export class ShareService {
         ? {}
         : { seed, inheritedEventCount: seed.length as unknown as SessionLogOffset },
       setup: async (agentCtx: Context, agent: Agent) => {
+        markSharedAgent(agent)
         const presets = agentCtx.get('agentPresets')
         if (presets !== undefined && share.source.presetId !== undefined) {
           await presets.mount(agentCtx, share.source.presetId)
@@ -279,7 +345,7 @@ export class ShareService {
             ? undefined
             : `agentshare: ${execution.name} is not available in shared sessions`,
         )
-        agentCtx.tools.restrict({ deny: ['share_create'] })
+        agentCtx.tools.restrict({ deny: ['share_create', 'handoff_draft'] })
         agent.session.append('sandbox/mode', { mode: 'read-only', source: 'delegation' })
       },
     } as CreateAgentOptions

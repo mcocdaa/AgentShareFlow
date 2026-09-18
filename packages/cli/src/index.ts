@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
+  handoffImportCommand,
   infoCommand,
   installCommand,
   loginCommand,
@@ -70,6 +71,16 @@ program
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
   .action(installCommand);
+
+program.command("handoff")
+  .description("preview and import selected work context")
+  .command("import")
+  .argument("<file>", "handoff.json exported by the source agent")
+  .option("--target <harness>", "target tool (codex only)", "codex")
+  .option("--dir <path>", "existing parent directory for independent imported files", ".")
+  .option("--confirm <digest>", "confirm the exact preview digest")
+  .option("--json", "machine-readable preview or result")
+  .action(handoffImportCommand);
 
 try {
   await program.parseAsync(process.argv);

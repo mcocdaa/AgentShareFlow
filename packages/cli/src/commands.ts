@@ -5,6 +5,8 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   HARNESSES,
+  previewHandoffImport,
+  importHandoff,
   type Harness,
   createPackTarball,
   extractPackTarball,
@@ -13,6 +15,45 @@ import {
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
+
+export async function handoffImportCommand(
+  file: string,
+  options: { target?: string; dir?: string; confirm?: string; json?: boolean },
+): Promise<void> {
+  if ((options.target ?? "codex") !== "codex") throw new Error("handoff import currently supports only codex");
+  const handle = await fsp.open(path.resolve(file), "r");
+  let input: unknown;
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error("handoff must be a regular JSON file");
+    const bytes = Buffer.alloc(256 * 1024 + 1);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    if (bytesRead > 256 * 1024) throw new Error("handoff exceeds 256 KiB");
+    input = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
+  } finally {
+    await handle.close();
+  }
+  const dir = options.dir ?? process.cwd();
+  const preview = await previewHandoffImport(input, dir);
+  if (options.confirm === undefined) {
+    if (options.json) {
+      console.log(JSON.stringify({ status: "preview", ...preview }, null, 2));
+    } else {
+      console.log(preview.markdown);
+      for (const warning of preview.warnings) console.log(`warning: ${warning}`);
+      console.log(`destination  ${preview.destination} (new independent subdirectory)`);
+      console.log(`confirm      rerun with the same arguments and --confirm ${preview.digest}`);
+    }
+    return;
+  }
+  const written = await importHandoff(input, { dir, confirm: options.confirm });
+  if (options.json) {
+    console.log(JSON.stringify({ status: "imported", ...written }, null, 2));
+  } else {
+    console.log(`imported  ${written.jsonPath}`);
+    console.log(`context   ${written.markdownPath}`);
+    console.log(`next      ask Codex in your project to read ${written.promptPath}`);
+  }
+}
 
 export interface RefParts {
   owner: string;

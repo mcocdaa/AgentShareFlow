@@ -19,6 +19,15 @@
 - [ ] A2A facade：把 tunnel 分享暴露成 A2A server（`.well-known/agent-card.json` + JSON-RPC），让 A2A 客户端可直接发现/调用
 - [ ] 插件 npm 发布（需把 `@agentshare/core` 发到 npm，或在 tsdown 配置里内联打包）
 
+## M2 — 跨工具交接（进行中）
+
+- [x] `handoff/v0` 契约：目标/完成标准、约束与环境、资料来源、关键决策（含证据）、进度待办、成果、授权状态（core `handoff.ts` + zod + Markdown + 测试）
+- [x] DSH 导出：owner agent 调 `handoff_draft` 生成草稿（预览不落盘），用户 `/handoff <digest>` 确认后写入 `agentshare-handoff-*/`；访客 fork 不可用
+- [x] Codex 导入：`agentshare handoff import <file>` 默认预览（警告/需重新授权/引用需人工核对），`--confirm <digest>` 写入独立目录 + `CODEX-PROMPT.md`；不覆盖项目指令、不执行命令、不继承授权
+- [x] 真实续做验证：DSH 导出 → CLI 导入 → 真实 Codex 完成待办 → 独立复跑验收测试 3/3
+- [ ] 可对话交接页：交接内容 + 证据问答（relay/分享页呈现 handoff）
+- [ ] 成果回流：接收者提交成果、变更说明与未解决问题，由原任务人确认 ；公开案例需单独同意
+
 ## P0 — 骨架（已完成）
 
 - [x] pnpm monorepo：core / cli / registry / web

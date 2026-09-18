@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
-import { ShareService } from './service.ts'
+import { ShareService, HandoffService } from './service.ts'
 
 export const name = 'agentshare'
 
@@ -28,6 +28,7 @@ export function apply(ctx: Context, config: Config): void {
     tokenEnv: config.tokenEnv,
     ...config.title === undefined ? {} : { title: config.title },
   })
+  const handoff = new HandoffService()
 
   const failure = (error: unknown): string => error instanceof Error ? error.message : String(error)
 
@@ -96,6 +97,46 @@ export function apply(ctx: Context, config: Config): void {
     },
   })), 'agentshare: share_create')
 
+  ctx.effect(() => ctx.tools.register(defineTool({
+    name: 'handoff_draft',
+    description: 'Prepare a local handoff draft from selected session context, without writing or publishing it. '
+      + 'Include goal, doneWhen, context (constraints, environment, sources), decisions (id, summary, rationale, evidence), '
+      + 'tasks (id, summary, status: in-progress/blocked/done, howToVerify), outcomes, authorizations and openQuestions. '
+      + 'Evidence and outcomes use {label, kind: path/url/transcript/note, ref}. Cite only actual sources; do not invent rationale. '
+      + 'Never include credentials or private material not selected by the user. Authorization names only; no permissions transfer. '
+      + 'Return the full preview for user review; only the user can confirm export using /handoff <digest>.',
+    parameters: {
+      json: {
+        type: 'string',
+        required: true,
+        description: 'JSON object with spec="handoff/v0", lowercase-hyphen id, title and goal; optional fields as described above. Maximum 256 KiB.',
+      },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }],
+    },
+    execute: async (args, exec) => {
+      if (exec.agent === undefined) throw new Error('handoff_draft requires an agent context')
+      return await Promise.resolve(handoff.prepare(exec.agent, args.json))
+    },
+  })), 'agentshare: handoff_draft')
+
+  ctx.effect(() => ctx.commands.register({
+    name: 'handoff',
+    description: 'Preview the pending handoff, or confirm export with /handoff <digest>',
+    input: { hint: 'Leave empty to preview; paste the reviewed digest to export' },
+    handler: async ({ agent, rawInput }) => {
+      try {
+        const digest = rawInput.trim()
+        const text = digest === '' ? handoff.preview(agent) : await handoff.confirm(agent, digest)
+        return { kind: 'success', text }
+      } catch (error) {
+        return { kind: 'error', text: failure(error) }
+      }
+    },
+  }), 'agentshare: /handoff')
+
   ctx.effect(() => ctx.on('agent/assistant-stream', ({ agent, frame }) => {
     service.onAssistantStream(agent, frame)
   }), 'agentshare: stream forwarding')
@@ -109,6 +150,7 @@ export function apply(ctx: Context, config: Config): void {
   }), 'agentshare: error forwarding')
 
   ctx.effect(() => () => {
+    handoff.clear()
     void service.stopAll()
   }, 'agentshare: shutdown')
 }
