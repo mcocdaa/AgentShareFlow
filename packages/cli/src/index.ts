@@ -5,6 +5,7 @@ import {
   handoffImportCommand,
   infoCommand,
   installPack,
+  starCommand,
   shareDecideCommand,
   shareSubmissionsCommand,
   updateCommand,
@@ -115,6 +116,25 @@ program.command("handoff")
   .option("--confirm <digest>", "confirm the exact preview digest")
   .option("--json", "machine-readable preview or result")
   .action(handoffImportCommand);
+
+program
+  .command("star")
+  .description("star a pack")
+  .argument("<ref>", "owner/name[@version]")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(starCommand);
+
+program
+  .command("unstar")
+  .description("remove your star from a pack")
+  .argument("<ref>", "owner/name[@version]")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action((ref: string, options: { registry?: string; token?: string; json?: boolean }) =>
+    starCommand(ref, { ...options, unstar: true }));
 
 program
   .command("diff")

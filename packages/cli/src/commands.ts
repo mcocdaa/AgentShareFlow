@@ -366,6 +366,23 @@ function snapshot(entry: LockEntry): Omit<UpdateResult, "file" | "to" | "status"
   };
 }
 
+export async function starCommand(
+  ref: string,
+  options: { unstar?: boolean; registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const token = resolveToken(config, options.token);
+  if (!token) throw new Error("starring requires login, run `agentshare login` or pass --token");
+  const client = new RegistryClient(resolveRegistry(config, options.registry), token);
+  const { owner, name } = parseRef(ref);
+  const result = await client.setStar(owner, name, options.unstar !== true);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`${result.starred ? "starred  " : "unstarred"} ${owner}/${name}  stars: ${result.stars}`);
+}
+
 export async function diffCommand(
   fromRef: string,
   toRef: string,
@@ -453,6 +470,7 @@ export async function infoCommand(
   console.log(`title       ${detail.title}`);
   console.log(`description ${detail.description}`);
   console.log(`downloads   ${detail.downloads}`);
+  console.log(`stars       ${detail.stars}${detail.starred === true ? " (starred by you)" : ""}`);
   console.log(`versions    ${detail.versions.join(", ")}`);
   console.log(`license     ${manifest.license ?? "(unset)"}`);
   console.log(`targets     ${manifest.compatibility.join(", ")}`);

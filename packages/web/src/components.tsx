@@ -27,7 +27,9 @@ export function PackCard({ pack }: { pack: PackSummary }) {
       <p>{pack.description}</p>
       <div className="card-foot">
         <span>v{pack.version}</span>
-        <span>{pack.downloads} downloads</span>
+        <span>
+          ★ {pack.stars} · {pack.downloads} downloads
+        </span>
       </div>
     </a>
   );

@@ -9,6 +9,7 @@ export interface PackSummary {
   mode: string;
   tags: string[];
   downloads: number;
+  stars: number;
   createdAt: string;
 }
 
@@ -18,6 +19,7 @@ export interface PackDetail extends PackSummary {
   downloadUrl: string;
   manifest: AgentManifest;
   versions: string[];
+  starred?: boolean;
 }
 
 export interface PublishResult {
@@ -59,6 +61,19 @@ export class RegistryClient {
     const suffix = version ? `/${encodeURIComponent(version)}` : "";
     const res = await fetch(
       this.resolve(`api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${suffix}`),
+      { headers: this.headers() },
+    );
+    return this.toJson(res);
+  }
+
+  async setStar(
+    owner: string,
+    name: string,
+    starred: boolean,
+  ): Promise<{ starred: boolean; stars: number }> {
+    const res = await fetch(
+      this.resolve(`api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/star`),
+      { method: starred ? "POST" : "DELETE", headers: this.headers() },
     );
     return this.toJson(res);
   }

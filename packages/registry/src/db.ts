@@ -153,6 +153,18 @@ export class RegistryDb {
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS share_submissions_share ON share_submissions (share_id, id)",
     );
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS stars (
+        owner TEXT NOT NULL,
+        pack_owner TEXT NOT NULL,
+        pack_name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (owner, pack_owner, pack_name)
+      )
+    `);
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS stars_pack ON stars (pack_owner, pack_name)",
+    );
     this.migrateShareColumns();
   }
 
@@ -241,6 +253,34 @@ export class RegistryDb {
          LIMIT 100`,
       )
       .all(...params) as unknown as PackRow[];
+  }
+
+  addStar(owner: string, packOwner: string, packName: string, at: string): void {
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO stars (owner, pack_owner, pack_name, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(owner, packOwner, packName, at);
+  }
+
+  removeStar(owner: string, packOwner: string, packName: string): void {
+    this.db
+      .prepare("DELETE FROM stars WHERE owner = ? AND pack_owner = ? AND pack_name = ?")
+      .run(owner, packOwner, packName);
+  }
+
+  hasStar(owner: string, packOwner: string, packName: string): boolean {
+    const row = this.db
+      .prepare("SELECT 1 AS n FROM stars WHERE owner = ? AND pack_owner = ? AND pack_name = ?")
+      .get(owner, packOwner, packName) as unknown as { n: number } | undefined;
+    return row !== undefined;
+  }
+
+  countStars(packOwner: string, packName: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM stars WHERE pack_owner = ? AND pack_name = ?")
+      .get(packOwner, packName) as unknown as { n: number };
+    return row.n;
   }
 
   bumpDownloads(owner: string, name: string, version: string): void {

@@ -47,7 +47,8 @@
 - [ ] 发布 pipeline：CI 发布（`examples/publish-workflow.yml` 模板已给，待真实仓库验证）、多 skill pack 示例
 - [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）
 - [x] 发布扫描：`high/medium` 规则（提示注入、危险命令、隐藏字符）；`push`/`install`/`update` 本地拦截 + registry 服务端拦截，`--allow-risky` 显式越过
-- [ ] manifest 签名（minisign）、安装量 / 星标
+- [x] 安装量 / 星标：下载数已有；星标一人一星（Bearer/OIDC 身份），search/detail 返回计数与 `starred`，CLI `star`/`unstar`，Web 展示
+- [ ] manifest 签名（minisign）
 - [ ] 互操作：导入 ClawHub / Smithery / skills.sh；导出为标准 SKILL.md 目录
 - [x] `agentshare serve --mcp`：stdio MCP server 暴露 `agentshare_search` / `agentshare_info` / `agentshare_install`（高危扫描阻断以 `isError` 返回）；冒烟含 initialize/tools/搜索/信息/安装/坏输入
 

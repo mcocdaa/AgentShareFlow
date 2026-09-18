@@ -21,6 +21,7 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 | GET | `/api/v1/agents/:owner/:name/:version` | 指定版本详情 |
 | GET | `/api/v1/agents/:owner/:name/:version/download` | 下载 tarball（计数 +1） |
 | POST | `/api/v1/agents` | 发布（需认证，multipart） |
+| POST / DELETE | `/api/v1/agents/:owner/:name/star` | 加星 / 取消（需认证，Bearer 或 OIDC 会话），返回 `{ starred, stars }` |
 
 ### 详情响应
 
@@ -34,6 +35,8 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
   "mode": "offline",
   "tags": ["handoff"],
   "downloads": 3,
+  "stars": 1,
+  "starred": true,
   "createdAt": "2026-09-16T08:00:00.000Z",
   "digest": "sha256:...",
   "size": 2048,

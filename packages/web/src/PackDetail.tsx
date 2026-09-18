@@ -32,6 +32,11 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
       <dl>
         <dt>downloads</dt>
         <dd>{detail.downloads}</dd>
+        <dt>stars</dt>
+        <dd>
+          {detail.stars}
+          {detail.starred === true ? " (starred by you)" : ""}
+        </dd>
         <dt>versions</dt>
         <dd>{detail.versions.join(", ")}</dd>
         <dt>targets</dt>

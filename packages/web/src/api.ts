@@ -7,6 +7,7 @@ export interface PackSummary {
   mode: string;
   tags: string[];
   downloads: number;
+  stars: number;
   createdAt: string;
 }
 
@@ -15,6 +16,7 @@ export interface PackDetail extends PackSummary {
   size: number;
   downloadUrl: string;
   versions: string[];
+  starred?: boolean;
   manifest: {
     license?: string;
     compatibility?: string[];

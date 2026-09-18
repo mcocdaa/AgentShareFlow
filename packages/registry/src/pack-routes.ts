@@ -21,7 +21,7 @@ function pick(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function toSummary(row: PackRow) {
+function toSummary(row: PackRow, stars: number) {
   return {
     owner: row.owner,
     name: row.name,
@@ -31,18 +31,20 @@ function toSummary(row: PackRow) {
     mode: row.mode,
     tags: JSON.parse(row.tags) as string[],
     downloads: row.downloads,
+    stars,
     createdAt: row.created_at,
   };
 }
 
-function toDetail(row: PackRow, versions: string[]) {
+function toDetail(row: PackRow, versions: string[], stars: number, starred?: boolean) {
   return {
-    ...toSummary(row),
+    ...toSummary(row, stars),
     digest: row.digest,
     size: row.size,
     downloadUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/download`,
     manifest: JSON.parse(row.manifest) as AgentManifest,
     versions,
+    ...starred === undefined ? {} : { starred },
   };
 }
 
@@ -58,22 +60,40 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
   app.get("/search", (c) => {
     const query = (c.req.query("q") ?? "").trim();
     const mode = c.req.query("mode");
-    return c.json({ items: db.search(query, mode).map(toSummary) });
+    return c.json({
+      items: db.search(query, mode).map((row) => toSummary(row, db.countStars(row.owner, row.name))),
+    });
   });
 
-  app.get("/agents/:owner/:name", (c) => {
+  app.get("/agents/:owner/:name", async (c) => {
     const { owner, name } = c.req.param();
     const versions = db.versions(owner, name);
     const latest = versions.at(-1);
     if (!latest) return c.json({ error: "not found" }, 404);
-    return c.json(toDetail(latest, versions.map((row) => row.version)));
+    const who = await resolveOwner(c, oidc);
+    return c.json(
+      toDetail(
+        latest,
+        versions.map((row) => row.version),
+        db.countStars(owner, name),
+        who === undefined ? undefined : db.hasStar(who, owner, name),
+      ),
+    );
   });
 
-  app.get("/agents/:owner/:name/:version", (c) => {
+  app.get("/agents/:owner/:name/:version", async (c) => {
     const { owner, name, version } = c.req.param();
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
-    return c.json(toDetail(row, db.versions(owner, name).map((entry) => entry.version)));
+    const who = await resolveOwner(c, oidc);
+    return c.json(
+      toDetail(
+        row,
+        db.versions(owner, name).map((entry) => entry.version),
+        db.countStars(owner, name),
+        who === undefined ? undefined : db.hasStar(who, owner, name),
+      ),
+    );
   });
 
   app.get("/agents/:owner/:name/:version/download", (c) => {
@@ -87,6 +107,24 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
         "content-disposition": `attachment; filename="${name}-${version}.tgz"`,
       },
     });
+  });
+
+  app.post("/agents/:owner/:name/star", async (c) => {
+    const who = await resolveOwner(c, oidc);
+    if (!who) return c.json({ error: "unauthorized" }, 401);
+    const { owner, name } = c.req.param();
+    if (!db.latest(owner, name)) return c.json({ error: "not found" }, 404);
+    db.addStar(who, owner, name, new Date().toISOString());
+    return c.json({ starred: true, stars: db.countStars(owner, name) });
+  });
+
+  app.delete("/agents/:owner/:name/star", async (c) => {
+    const who = await resolveOwner(c, oidc);
+    if (!who) return c.json({ error: "unauthorized" }, 401);
+    const { owner, name } = c.req.param();
+    if (!db.latest(owner, name)) return c.json({ error: "not found" }, 404);
+    db.removeStar(who, owner, name);
+    return c.json({ starred: false, stars: db.countStars(owner, name) });
   });
 
   app.post("/agents", async (c) => {
