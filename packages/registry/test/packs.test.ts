@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sign } from "hono/utils/jwt/jwt";
-import { createPackTarball } from "@agentshare/core";
+import {
+  createPackTarball,
+  encodePublicKeyHeader,
+  generateSigningKeyPair,
+  keyFingerprint,
+  signDigest,
+} from "@agentshare/core";
+import { createHash } from "node:crypto";
 import { createApp } from "../src/app.js";
 
 const ENV_KEYS = [
@@ -98,6 +105,86 @@ async function sessionCookie(email: string): Promise<string> {
   );
   return `oidc-auth=${jwt}`;
 }
+
+async function buildPack(name: string, version: string) {
+  const packDir = await temporaryDirectory("agentshare-sign-");
+  const manifest = {
+    spec: "agent-pack/v0",
+    name,
+    version,
+    title: "Signed Pack",
+    description: "For signing tests.",
+    mode: "offline",
+    skills: ["."],
+  };
+  await fs.writeFile(path.join(packDir, "agent.json"), JSON.stringify(manifest));
+  await fs.writeFile(path.join(packDir, "SKILL.md"), "# Signed\n");
+  const tarball = path.join(packDir, "pack.tgz");
+  await createPackTarball(packDir, tarball);
+  const bytes = await fs.readFile(tarball);
+  return { manifest, bytes, digest: createHash("sha256").update(bytes).digest("hex") };
+}
+
+async function postPack(
+  app: ReturnType<typeof createApp>,
+  packed: Awaited<ReturnType<typeof buildPack>>,
+  headers: Record<string, string>,
+) {
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(packed.manifest));
+  form.set("tarball", new Blob([packed.bytes], { type: "application/gzip" }), "pack.tgz");
+  return app.request("/api/v1/agents", { method: "POST", headers, body: form });
+}
+
+describe("pack signatures", () => {
+  it("stores a valid ed25519 signature and rejects bad or partial signing headers", async () => {
+    const app = await makeApp("token");
+    const auth = { authorization: "Bearer tok" };
+    const keys = generateSigningKeyPair();
+
+    const signed = await buildPack("signed-pack", "0.1.0");
+    const good = await postPack(app, signed, {
+      ...auth,
+      "x-pack-digest": signed.digest,
+      "x-pack-public-key": encodePublicKeyHeader(keys.publicKey),
+      "x-pack-signature": signDigest(keys.privateKey, signed.digest),
+    });
+    expect(good.status).toBe(201);
+
+    const detail = await app.request("/api/v1/agents/starowner/signed-pack");
+    const body = (await detail.json()) as {
+      signature?: { algorithm: string; fingerprint: string; value: string };
+    };
+    expect(body.signature?.algorithm).toBe("ed25519");
+    expect(body.signature?.fingerprint).toBe(keyFingerprint(keys.publicKey));
+
+    const bad = await buildPack("signed-pack", "0.2.0");
+    const invalid = await postPack(app, bad, {
+      ...auth,
+      "x-pack-digest": bad.digest,
+      "x-pack-public-key": encodePublicKeyHeader(keys.publicKey),
+      "x-pack-signature": signDigest(keys.privateKey, "some-other-digest"),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({ error: "invalid signature" });
+
+    const partial = await buildPack("signed-pack", "0.3.0");
+    const partialRes = await postPack(app, partial, {
+      ...auth,
+      "x-pack-public-key": encodePublicKeyHeader(keys.publicKey),
+    });
+    expect(partialRes.status).toBe(400);
+    expect(await partialRes.json()).toMatchObject({ error: "signing requires both x-pack-public-key and x-pack-signature" });
+  });
+
+  it("keeps unsigned releases without signature metadata", async () => {
+    const app = await makeApp("token");
+    const unsigned = await buildPack("plain-pack", "0.1.0");
+    expect((await postPack(app, unsigned, { authorization: "Bearer tok" })).status).toBe(201);
+    const detail = await app.request("/api/v1/agents/starowner/plain-pack");
+    expect(await detail.json()).not.toHaveProperty("signature");
+  });
+});
 
 describe("pack stars", () => {
   it("starts at zero, requires auth, toggles once per owner, and reports in detail", async () => {

@@ -63,6 +63,8 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 
 可选请求头 `x-pack-digest: <sha256-hex>`，与服务端计算结果不符则 400。
 
+可选签名请求头（须同时提供）：`x-pack-public-key: <base64 DER SPKI>`、`x-pack-signature: <base64 ed25519 signature of the sha256 hex digest>`。签名无效或只提供其一时 400；有效时详情附带 `signature: { algorithm: "ed25519", publicKey, fingerprint, value }`。
+
 成功：`201 { "ok": true, "ref": "owner/name@1.0.0", "digest": "...", "size": 1234 }`
 
 ## 错误

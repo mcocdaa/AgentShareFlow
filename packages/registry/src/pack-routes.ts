@@ -6,11 +6,14 @@ import path from "node:path";
 import {
   type AgentManifest,
   OWNER_PATTERN,
+  decodePublicKeyHeader,
   extractPackTarball,
   formatIssues,
   formatScanFinding,
+  keyFingerprint,
   parseManifest,
   scanPack,
+  verifyDigest,
 } from "@agentshare/core";
 import { Hono } from "hono";
 import { type PackRow, type RegistryDb } from "./db.js";
@@ -45,6 +48,16 @@ function toDetail(row: PackRow, versions: string[], stars: number, starred?: boo
     manifest: JSON.parse(row.manifest) as AgentManifest,
     versions,
     ...starred === undefined ? {} : { starred },
+    ...row.public_key === null || row.signature === null
+      ? {}
+      : {
+          signature: {
+            algorithm: "ed25519" as const,
+            publicKey: row.public_key,
+            fingerprint: keyFingerprint(row.public_key),
+            value: row.signature,
+          },
+        },
   };
 }
 
@@ -163,6 +176,23 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
       );
     }
 
+    const publicKeyHeader = c.req.header("x-pack-public-key");
+    const signature = c.req.header("x-pack-signature");
+    if ((publicKeyHeader === undefined) !== (signature === undefined)) {
+      return c.json({ error: "signing requires both x-pack-public-key and x-pack-signature" }, 400);
+    }
+    let publicKey: string | null = null;
+    if (publicKeyHeader !== undefined && signature !== undefined) {
+      try {
+        publicKey = decodePublicKeyHeader(publicKeyHeader);
+      } catch {
+        return c.json({ error: "invalid public key" }, 400);
+      }
+      if (!verifyDigest(publicKey, digest, signature)) {
+        return c.json({ error: "invalid signature" }, 400);
+      }
+    }
+
     if (db.get(owner, manifest.name, manifest.version)) {
       return c.json(
         {
@@ -219,6 +249,8 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
       digest,
       size: bytes.length,
       file,
+      public_key: publicKey,
+      signature: signature ?? null,
       created_at: new Date().toISOString(),
     });
 

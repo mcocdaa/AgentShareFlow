@@ -13,6 +13,8 @@ export interface PackRow {
   size: number;
   file: string;
   downloads: number;
+  public_key: string | null;
+  signature: string | null;
   created_at: string;
 }
 
@@ -28,6 +30,8 @@ export interface PackInsert {
   digest: string;
   size: number;
   file: string;
+  public_key: string | null;
+  signature: string | null;
   created_at: string;
 }
 
@@ -165,7 +169,17 @@ export class RegistryDb {
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS stars_pack ON stars (pack_owner, pack_name)",
     );
+    this.migratePackColumns();
     this.migrateShareColumns();
+  }
+
+  private migratePackColumns(): void {
+    const columns = this.db.prepare("PRAGMA table_info(packs)").all() as unknown as Array<{
+      name: string;
+    }>;
+    const has = (name: string): boolean => columns.some((column) => column.name === name);
+    if (!has("public_key")) this.db.exec("ALTER TABLE packs ADD COLUMN public_key TEXT");
+    if (!has("signature")) this.db.exec("ALTER TABLE packs ADD COLUMN signature TEXT");
   }
 
   private migrateShareColumns(): void {
@@ -198,8 +212,8 @@ export class RegistryDb {
     this.db
       .prepare(
         `INSERT INTO packs
-         (owner, name, version, title, description, mode, tags, manifest, digest, size, file, downloads, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+         (owner, name, version, title, description, mode, tags, manifest, digest, size, file, public_key, signature, downloads, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       )
       .run(
         row.owner,
@@ -213,6 +227,8 @@ export class RegistryDb {
         row.digest,
         row.size,
         row.file,
+        row.public_key,
+        row.signature,
         row.created_at,
       );
   }

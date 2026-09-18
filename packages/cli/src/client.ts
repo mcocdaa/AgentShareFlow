@@ -13,6 +13,13 @@ export interface PackSummary {
   createdAt: string;
 }
 
+export interface PackSignature {
+  algorithm: string;
+  publicKey: string;
+  fingerprint: string;
+  value: string;
+}
+
 export interface PackDetail extends PackSummary {
   digest: string;
   size: number;
@@ -20,6 +27,7 @@ export interface PackDetail extends PackSummary {
   manifest: AgentManifest;
   versions: string[];
   starred?: boolean;
+  signature?: PackSignature;
 }
 
 export interface PublishResult {
@@ -82,6 +90,7 @@ export class RegistryClient {
     manifest: AgentManifest,
     tarball: Uint8Array,
     digest: string,
+    signing: { publicKeyHeader: string; signature: string } | undefined = undefined,
   ): Promise<PublishResult> {
     const form = new FormData();
     form.set("manifest", JSON.stringify(manifest));
@@ -92,7 +101,12 @@ export class RegistryClient {
     );
     const res = await fetch(this.resolve("api/v1/agents"), {
       method: "POST",
-      headers: this.headers({ "x-pack-digest": digest }),
+      headers: this.headers({
+        "x-pack-digest": digest,
+        ...signing === undefined
+          ? {}
+          : { "x-pack-public-key": signing.publicKeyHeader, "x-pack-signature": signing.signature },
+      }),
       body: form,
     });
     return this.toJson(res);

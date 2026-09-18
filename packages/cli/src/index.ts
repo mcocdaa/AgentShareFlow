@@ -5,6 +5,7 @@ import {
   handoffImportCommand,
   infoCommand,
   installPack,
+  keygenCommand,
   starCommand,
   shareDecideCommand,
   shareSubmissionsCommand,
@@ -52,7 +53,15 @@ program
   .option("--token <token>", "API token")
   .option("--dry-run", "validate and pack without uploading")
   .option("--allow-risky", "publish even when the security scan reports high-severity findings")
+  .option("--sign", "sign the release with an ed25519 key")
+  .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
   .action(pushCommand);
+
+program
+  .command("keygen")
+  .description("generate an ed25519 signing key")
+  .option("--out <file>", "key file path (default: CLI config dir signing-key.json)")
+  .action(keygenCommand);
 
 program
   .command("search")
@@ -67,6 +76,7 @@ program
   .description("show pack details")
   .argument("<ref>", "owner/name[@version]")
   .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token (shows your star state)")
   .option("--json", "machine-readable output")
   .action(infoCommand);
 

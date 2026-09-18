@@ -62,7 +62,9 @@ my-agent/
   - `medium`：隐瞒用户（do not tell / without informing）、覆盖系统提示（you are now / new system prompt）、keep secret、把内容发送到 URL。
   - `low`：预留。
 - 拦截点：`agentshare push` 与 `install`/`update` 在打包/落盘前扫描，`high` 默认阻断，可用 `--allow-risky` 显式越过；registry 发布时在服务端再次解包扫描，`high` 一律 400（`pack blocked by the security scan`）。`agentshare pack` 只提示不阻断。
-- 签名（minisign / sigstore）与来源证明为 v1 目标。
+- **ed25519 签名（v0，Node 内置 crypto，无外部二进制）**：`agentshare keygen` 生成密钥（默认存 CLI 配置目录 `signing-key.json`，权限 600）；`agentshare push --sign [--key <file>]` 对 tarball 的 SHA-256 digest 签名，经 `x-pack-public-key`（单行 base64 DER）与 `x-pack-signature`（base64）提交；registry 校验后随版本存储并在详情返回 `signature: { algorithm, publicKey, fingerprint, value }`。
+- CLI `install`/`update` 下载后先核对 digest 再验签，失败拒绝安装；lockfile 记录 `signer` 指纹，换签名者时 update 拒绝并提示用 `install --force` 显式接受。
+- sigstore / 透明日志与来源证明为 v1 目标。
 
 ## 安装映射（v0）
 

@@ -17,6 +17,7 @@ export const LockEntrySchema = z.object({
   scope: z.enum(["user", "project", "dir"]),
   dest: z.string().min(1),
   registry: z.string().min(1).optional(),
+  signer: z.string().min(1).optional(),
   installedAt: z.string().min(1),
 });
 export type LockEntry = z.infer<typeof LockEntrySchema>;
@@ -52,6 +53,7 @@ export interface InstallRecordInput {
   scope: "user" | "project" | "dir";
   dest: string;
   registry?: string;
+  signer?: string;
   installedAt: string;
 }
 

@@ -82,6 +82,7 @@ agentshare push ./my-agent
 ## Rules
 
 - `push`, `install`, and `update` run a security scan (prompt injection, dangerous commands). High-severity findings block the action; only pass `--allow-risky` after the user has reviewed the findings and explicitly accepted the risk. Never use it silently.
+- Sign releases with `agentshare keygen` once and `agentshare push --sign`; install and update verify signatures and refuse a changed signer unless the user explicitly reinstalls with `--force`.
 - Never put secrets in a pack. Declare names in `secrets: ["GITHUB_TOKEN"]` and let the installer inject values.
 - Releases are immutable: bump `version` to publish again.
 - Reference paths in `agent.json` (skills, instructions, mcp config) must exist in the pack directory or `push` fails.

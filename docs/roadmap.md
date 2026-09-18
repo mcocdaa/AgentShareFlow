@@ -48,7 +48,7 @@
 - [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）
 - [x] 发布扫描：`high/medium` 规则（提示注入、危险命令、隐藏字符）；`push`/`install`/`update` 本地拦截 + registry 服务端拦截，`--allow-risky` 显式越过
 - [x] 安装量 / 星标：下载数已有；星标一人一星（Bearer/OIDC 身份），search/detail 返回计数与 `starred`，CLI `star`/`unstar`，Web 展示
-- [ ] manifest 签名（minisign）
+- [x] 发布签名：ed25519（Node 内置 crypto）`keygen` / `push --sign`；registry 校验存储；install/update 验签并拒绝换钥（`--force` 显式接受）
 - [ ] 互操作：导入 ClawHub / Smithery / skills.sh；导出为标准 SKILL.md 目录
 - [x] `agentshare serve --mcp`：stdio MCP server 暴露 `agentshare_search` / `agentshare_info` / `agentshare_install`（高危扫描阻断以 `isError` 返回）；冒烟含 initialize/tools/搜索/信息/安装/坏输入
 

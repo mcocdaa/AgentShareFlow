@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
@@ -13,8 +14,13 @@ import {
   createPackTarball,
   diffPackDirs,
   extractPackTarball,
+  encodePublicKeyHeader,
   formatScanFinding,
+  generateSigningKeyPair,
+  keyFingerprint,
   readLockfile,
+  signDigest,
+  verifyDigest,
   readPack,
   resolveSkillsDir,
   scanPack,
@@ -143,6 +149,36 @@ export function parseRef(ref: string): RefParts {
   return { owner, name, version };
 }
 
+function defaultSigningKeyPath(): string {
+  return (
+    process.env.AGENTSHARE_SIGNING_KEY ?? path.join(path.dirname(configPath()), "signing-key.json")
+  );
+}
+
+async function loadSigningKey(
+  file: string,
+): Promise<{ publicKey: string; privateKey: string }> {
+  const parsed = JSON.parse(await fsp.readFile(path.resolve(file), "utf8")) as {
+    publicKey?: unknown;
+    privateKey?: unknown;
+  };
+  if (typeof parsed.publicKey !== "string" || typeof parsed.privateKey !== "string") {
+    throw new Error(`invalid signing key file: ${file}`);
+  }
+  return { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
+}
+
+export async function keygenCommand(options: { out?: string }): Promise<void> {
+  const file = path.resolve(options.out ?? defaultSigningKeyPath());
+  if (fs.existsSync(file)) throw new Error(`signing key already exists: ${file}`);
+  const keys = generateSigningKeyPair();
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  await fsp.writeFile(file, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600 });
+  console.log(`keygen    ${file}`);
+  console.log(`fingerprint ${keyFingerprint(keys.publicKey)}`);
+  console.log(keys.publicKey.trim());
+}
+
 function truncate(input: string, max: number): string {
   return input.length <= max ? input : `${input.slice(0, max - 1)}…`;
 }
@@ -221,7 +257,14 @@ export async function packCommand(dir: string, options: { out?: string }): Promi
 
 export async function pushCommand(
   dir: string,
-  options: { registry?: string; token?: string; dryRun?: boolean; allowRisky?: boolean },
+  options: {
+    registry?: string;
+    token?: string;
+    dryRun?: boolean;
+    allowRisky?: boolean;
+    sign?: boolean;
+    key?: string;
+  },
 ): Promise<void> {
   const config = loadConfig();
   const registry = resolveRegistry(config, options.registry);
@@ -242,9 +285,20 @@ export async function pushCommand(
     }
     if (!token) throw new Error("not logged in, run `agentshare login` or pass --token");
 
+    let signing: { publicKeyHeader: string; signature: string } | undefined;
+    if (options.sign === true) {
+      const keyFile = options.key ?? defaultSigningKeyPath();
+      const keys = await loadSigningKey(keyFile);
+      signing = {
+        publicKeyHeader: encodePublicKeyHeader(keys.publicKey),
+        signature: signDigest(keys.privateKey, result.digest),
+      };
+      console.log(`sign      ed25519 ${keyFingerprint(keys.publicKey)}`);
+    }
+
     const bytes = await fsp.readFile(file);
     const client = new RegistryClient(registry, token);
-    const published = await client.publish(pack.manifest, bytes, result.digest);
+    const published = await client.publish(pack.manifest, bytes, result.digest, signing);
     console.log(`pushed  ${published.ref}`);
     console.log(`to      ${registry}`);
   } finally {
@@ -299,6 +353,13 @@ export async function updateCommand(
         continue;
       }
       const bytes = await client.downloadBytes(entry.owner, entry.name, detail.version);
+      verifyDownloadedPack(detail, bytes);
+      const signer = detail.signature?.fingerprint;
+      if (entry.signer !== undefined && signer !== entry.signer) {
+        throw new Error(
+          `signer changed for ${entry.owner}/${entry.name} (${entry.signer} -> ${signer ?? "unsigned"}); reinstall manually with --force to accept`,
+        );
+      }
       const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-update-"));
       try {
         const tarball = path.join(tmp, "pack.tgz");
@@ -325,6 +386,7 @@ export async function updateCommand(
         digest: detail.digest,
         mode: detail.manifest.mode,
         registry,
+        ...signer === undefined ? {} : { signer },
         installedAt: new Date().toISOString(),
       });
       dirty = true;
@@ -455,10 +517,13 @@ export async function searchCommand(
 
 export async function infoCommand(
   ref: string,
-  options: { registry?: string; json?: boolean },
+  options: { registry?: string; token?: string; json?: boolean },
 ): Promise<void> {
   const config = loadConfig();
-  const client = new RegistryClient(resolveRegistry(config, options.registry), resolveToken(config));
+  const client = new RegistryClient(
+    resolveRegistry(config, options.registry),
+    resolveToken(config, options.token),
+  );
   const { owner, name, version } = parseRef(ref);
   const detail = await client.info(owner, name, version);
   if (options.json) {
@@ -483,6 +548,21 @@ export async function infoCommand(
   }
   if (manifest.secrets.length) console.log(`secrets     ${manifest.secrets.join(", ")}`);
   console.log(`install     agentshare install ${owner}/${name}@${detail.version} --target agents`);
+}
+
+function verifyDownloadedPack(
+  detail: { owner: string; name: string; version: string; digest: string; signature?: { publicKey: string; value: string } },
+  bytes: Uint8Array,
+): void {
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (actual !== detail.digest) {
+    throw new Error(`digest mismatch for ${detail.owner}/${detail.name}@${detail.version}; refusing to install`);
+  }
+  if (detail.signature !== undefined && !verifyDigest(detail.signature.publicKey, detail.digest, detail.signature.value)) {
+    throw new Error(
+      `signature verification failed for ${detail.owner}/${detail.name}@${detail.version}; refusing to install`,
+    );
+  }
 }
 
 export interface InstallOptions {
@@ -515,6 +595,7 @@ export async function installPack(
   const { owner, name, version } = parseRef(ref);
   const detail = await client.info(owner, name, version);
   const bytes = await client.downloadBytes(owner, name, detail.version);
+  verifyDownloadedPack(detail, bytes);
 
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-install-"));
   try {
@@ -577,6 +658,7 @@ export async function installPack(
           scope,
           dest: item.dest,
           registry,
+          ...detail.signature === undefined ? {} : { signer: detail.signature.fingerprint },
           installedAt: new Date().toISOString(),
         });
       }
