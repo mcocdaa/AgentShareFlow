@@ -21,6 +21,7 @@ import {
   upsertInstall,
   writeLockfile,
   type LockEntry,
+  type ScanReport,
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
@@ -416,21 +417,33 @@ export async function infoCommand(
   console.log(`install     agentshare install ${owner}/${name}@${detail.version} --target agents`);
 }
 
-export async function installCommand(
+export interface InstallOptions {
+  target?: string;
+  project?: boolean;
+  dir?: string;
+  force?: boolean;
+  allowRisky?: boolean;
+}
+
+export interface InstallOutcome {
+  owner: string;
+  name: string;
+  version: string;
+  mode: string;
+  installed: Array<{ target: Harness; dest: string }>;
+  skipped: string[];
+  scan: ScanReport;
+  lockfile?: string;
+  endpoint?: { type: string; url: string };
+  secrets: string[];
+}
+
+export async function installPack(
+  client: RegistryClient,
+  registry: string,
   ref: string,
-  options: {
-    target?: string;
-    project?: boolean;
-    dir?: string;
-    force?: boolean;
-    allowRisky?: boolean;
-    registry?: string;
-    token?: string;
-  },
-): Promise<void> {
-  const config = loadConfig();
-  const registry = resolveRegistry(config, options.registry);
-  const client = new RegistryClient(registry, resolveToken(config, options.token));
+  options: InstallOptions,
+): Promise<InstallOutcome> {
   const { owner, name, version } = parseRef(ref);
   const detail = await client.info(owner, name, version);
   const bytes = await client.downloadBytes(owner, name, detail.version);
@@ -441,11 +454,22 @@ export async function installCommand(
     await fsp.writeFile(tarball, bytes);
     const extracted = path.join(tmp, "pack");
     await extractPackTarball(tarball, extracted);
-    await scanOrReport(extracted, options.allowRisky === true, "install");
+
+    const scan = await scanPack(extracted);
+    if (scan.blocked && options.allowRisky !== true) {
+      const highlights = scan.findings
+        .filter((finding) => finding.severity === "high")
+        .map(formatScanFinding)
+        .join("\n");
+      throw new Error(
+        `install blocked by the security scan (high severity):\n${highlights}\nreview the findings or pass --allow-risky`,
+      );
+    }
 
     const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
     const targets = resolveTargets(options.target);
     const installed: Array<{ target: Harness; dest: string }> = [];
+    const skipped: string[] = [];
 
     for (const harness of targets) {
       const baseDir = options.dir
@@ -457,7 +481,7 @@ export async function installCommand(
         const skillName = rel === "." ? detail.manifest.name : path.basename(rel);
         const dest = path.join(baseDir, skillName);
         if (fs.existsSync(dest) && !options.force) {
-          console.log(`skip    ${dest} (exists, use --force)`);
+          skipped.push(dest);
           continue;
         }
         await fsp.rm(dest, { recursive: true, force: true });
@@ -467,12 +491,13 @@ export async function installCommand(
       }
     }
 
+    let lockfile: string | undefined;
     if (installed.length > 0) {
-      const file = options.project
+      lockfile = options.project
         ? path.join(process.cwd(), LOCKFILE_FILENAME)
         : path.join(path.dirname(configPath()), LOCKFILE_FILENAME);
       const scope = options.project ? "project" : options.dir ? "dir" : "user";
-      let lock = await readLockfile(file);
+      let lock = await readLockfile(lockfile);
       for (const item of installed) {
         lock = upsertInstall(lock, {
           owner,
@@ -487,22 +512,42 @@ export async function installCommand(
           installedAt: new Date().toISOString(),
         });
       }
-      await writeLockfile(file, lock);
-      console.log(`record  ${file}`);
+      await writeLockfile(lockfile, lock);
     }
 
-    console.log(`install ${owner}/${name}@${detail.version} (mode: ${detail.manifest.mode})`);
-    for (const item of installed) console.log(`  -> ${item.dest}`);
-    if (detail.manifest.mode === "endpoint" && detail.manifest.endpoint) {
-      console.log(`online  ${detail.manifest.endpoint.type} ${detail.manifest.endpoint.url}`);
-    }
-    if (detail.manifest.secrets.length > 0) {
-      console.log(`secrets ${detail.manifest.secrets.join(", ")}`);
-    }
-    if (installed.length === 0) {
-      console.log("nothing installed");
-    }
+    return {
+      owner,
+      name,
+      version: detail.version,
+      mode: detail.manifest.mode,
+      installed,
+      skipped,
+      scan,
+      ...lockfile === undefined ? {} : { lockfile },
+      ...detail.manifest.endpoint === undefined ? {} : { endpoint: detail.manifest.endpoint },
+      secrets: detail.manifest.secrets,
+    };
   } finally {
     await fsp.rm(tmp, { recursive: true, force: true });
   }
+}
+
+export async function installCommand(
+  ref: string,
+  options: InstallOptions & { registry?: string; token?: string },
+): Promise<void> {
+  const config = loadConfig();
+  const registry = resolveRegistry(config, options.registry);
+  const client = new RegistryClient(registry, resolveToken(config, options.token));
+  const result = await installPack(client, registry, ref, options);
+
+  for (const finding of result.scan.findings) console.log(`scan    ${formatScanFinding(finding)}`);
+  if (result.scan.findings.length > 0) console.log(`scan    ${summarizeScan(result.scan)}`);
+  for (const dest of result.skipped) console.log(`skip    ${dest} (exists, use --force)`);
+  if (result.lockfile !== undefined) console.log(`record  ${result.lockfile}`);
+  console.log(`install ${result.owner}/${result.name}@${result.version} (mode: ${result.mode})`);
+  for (const item of result.installed) console.log(`  -> ${item.dest}`);
+  if (result.endpoint) console.log(`online  ${result.endpoint.type} ${result.endpoint.url}`);
+  if (result.secrets.length > 0) console.log(`secrets ${result.secrets.join(", ")}`);
+  if (result.installed.length === 0) console.log("nothing installed");
 }

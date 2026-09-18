@@ -30,6 +30,7 @@ agentshare search <query> [--json]
 agentshare info <owner>/<name>[@version] [--json]
 agentshare install <owner>/<name>[@version] --target <targets>
 agentshare update [owner/name] [--dry-run]    # reinstall locked packs to latest
+agentshare serve --mcp                         # stdio MCP server: search/info/install as tools
 ```
 
 Installs are recorded in a lockfile (`agentshare.lock.json`): project installs record in the project root, user-level installs in the CLI config directory. Each entry keeps owner/name/version, tarball digest, target, scope, destination, and registry, so `agentshare update` can reinstall to the same places and `--dry-run` shows the version plan first.

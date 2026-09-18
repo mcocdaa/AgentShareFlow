@@ -3,6 +3,7 @@ import { Command } from "commander";
 import {
   handoffImportCommand,
   infoCommand,
+  installPack,
   shareDecideCommand,
   shareSubmissionsCommand,
   updateCommand,
@@ -13,6 +14,9 @@ import {
   searchCommand,
   whoamiCommand,
 } from "./commands.js";
+import { RegistryClient } from "./client.js";
+import { loadConfig, resolveRegistry, resolveToken } from "./config.js";
+import { serveMcpCommand } from "./mcp.js";
 
 const program = new Command();
 
@@ -121,6 +125,24 @@ program
   .option("--token <token>", "API token")
   .option("--json", "machine-readable output")
   .action(updateCommand);
+
+program
+  .command("serve")
+  .description("run the registry as an MCP stdio server so agents can search and install packs")
+  .option("--mcp", "use the MCP stdio transport (required)")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .action((options: { mcp?: boolean; registry?: string; token?: string }) => {
+    if (options.mcp !== true) throw new Error("serve currently supports only --mcp");
+    const config = loadConfig();
+    const registry = resolveRegistry(config, options.registry);
+    const client = new RegistryClient(registry, resolveToken(config, options.token));
+    serveMcpCommand({
+      registry,
+      client,
+      install: (ref, installOptions) => installPack(client, registry, ref, installOptions),
+    });
+  });
 
 try {
   await program.parseAsync(process.argv);

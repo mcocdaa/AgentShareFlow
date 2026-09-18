@@ -48,7 +48,7 @@
 - [x] 发布扫描：`high/medium` 规则（提示注入、危险命令、隐藏字符）；`push`/`install`/`update` 本地拦截 + registry 服务端拦截，`--allow-risky` 显式越过
 - [ ] manifest 签名（minisign）、安装量 / 星标
 - [ ] 互操作：导入 ClawHub / Smithery / skills.sh；导出为标准 SKILL.md 目录
-- [ ] `agentshare serve --mcp`：让 agent 直接搜索/安装注册表
+- [x] `agentshare serve --mcp`：stdio MCP server 暴露 `agentshare_search` / `agentshare_info` / `agentshare_install`（高危扫描阻断以 `isError` 返回）；冒烟含 initialize/tools/搜索/信息/安装/坏输入
 
 ## P2 — 在线 agent（5–7 周）
 

@@ -11,7 +11,7 @@
 ```
 packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
-  cli/             agentshare CLI：login / pack / push / search / info / install / update / handoff / share
+  cli/             agentshare CLI：login / pack / push / search / info / install / update / handoff / share / serve --mcp
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
   web/             Vite + React：包浏览 + 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
@@ -81,6 +81,24 @@ docker run -d -p 8787:8787 -v relay-data:/data \
 - 数据落在 `/data`（SQLite + packs 目录），生产请挂卷。
 - 国内构建：`docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com ...`。
 - 环境变量总览：`PORT`、`AGENTSHARE_DATA`、`AGENTSHARE_TOKENS`、`AGENTSHARE_PUBLIC_URL`、`AGENTSHARE_WEB_DIR`（默认 `packages/web/dist`）。
+
+## MCP：让 agent 直接用注册表
+
+`agentshare serve --mcp` 启动 stdio MCP server，暴露三个工具：`agentshare_search`（按关键词搜索）、`agentshare_info`（查看版本/targets/secrets/endpoint）、`agentshare_install`（安装到本地 harness，高危扫描自动拦截）。
+
+```json
+{
+  "mcpServers": {
+    "agentshare": {
+      "command": "npx",
+      "args": ["-y", "@agentshare/cli", "serve", "--mcp", "--registry", "https://relay.example.com"],
+      "env": { "AGENTSHARE_TOKEN": "<token>" }
+    }
+  }
+}
+```
+
+安装到用户级目录（`~/.agents/skills` 等）；高危包会被安全扫描阻断，MCP 工具以 `isError` 返回原因。
 
 ## 分享任意 A2A agent（endpoint 模式）
 
