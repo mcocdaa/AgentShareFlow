@@ -4,7 +4,8 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 ENV npm_config_registry=$NPM_REGISTRY \
     COREPACK_NPM_REGISTRY=$NPM_REGISTRY
 
-RUN corepack enable
+RUN npm install -g corepack@latest \
+ && corepack enable
 WORKDIR /app
 
 COPY . .
