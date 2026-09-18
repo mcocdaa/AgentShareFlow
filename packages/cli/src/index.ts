@@ -4,6 +4,7 @@ import {
   diffCommand,
   exportCommand,
   handoffImportCommand,
+  importCommand,
   infoCommand,
   installPack,
   keygenCommand,
@@ -105,6 +106,19 @@ program
   .option("--token <token>", "API token")
   .option("--json", "machine-readable output")
   .action(exportCommand);
+
+program
+  .command("import")
+  .description("convert a skill or MCP server from another registry into a local Agent Pack")
+  .argument("<provider>", "smithery, clawhub, or skills-sh")
+  .argument("<source>", "smithery qualifiedName, clawhub owner/slug, or skills-sh owner/repo")
+  .option("--out <dir>", "output pack directory (default: ./<name>)")
+  .option("--name <name>", "override the derived pack name")
+  .option("--skill <name>", "skills-sh only: import a single skill by name")
+  .option("--version <version>", "clawhub only: import a specific version")
+  .option("--force", "write into a non-empty destination")
+  .option("--json", "machine-readable output")
+  .action(importCommand);
 
 const share = program.command("share").description("review outcomes submitted through a share link");
 

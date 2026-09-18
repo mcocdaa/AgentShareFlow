@@ -51,7 +51,7 @@
 - [x] 安装量 / 星标：下载数已有；星标一人一星（Bearer/OIDC 身份），search/detail 返回计数与 `starred`，CLI `star`/`unstar`，Web 展示
 - [x] 发布签名：ed25519（Node 内置 crypto）`keygen` / `push --sign`；registry 校验存储；install/update 验签并拒绝换钥（`--force` 显式接受）
 - [x] 导出：`agentshare export <ref> --out <dir>` 扁平 SKILL.md 目录（扫描/验签/`--force`，多 skill 展开）
-- [ ] 导入：ClawHub / Smithery / skills.sh（需外部 API 与字段映射，待逐家确认）
+- [x] 导入：ClawHub（公开 API + zip）、Smithery（公开 registry → endpoint pack）、skills.sh（GitHub 源，tree + contents 回退，支持整仓多 skill 或 `--skill` 单个）；`agentshare import <provider>`
 - [x] `agentshare serve --mcp`：stdio MCP server 暴露 `agentshare_search` / `agentshare_info` / `agentshare_install`（高危扫描阻断以 `isError` 返回）；冒烟含 initialize/tools/搜索/信息/安装/坏输入
 
 ## P2 — 在线 agent（5–7 周）

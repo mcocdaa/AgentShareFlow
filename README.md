@@ -11,7 +11,7 @@
 ```
 packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
-  cli/             agentshare CLI：login / pack / push / search / info / install / update / export / handoff / share / serve --mcp
+  cli/             agentshare CLI：login / pack / push / search / info / install / update / export / import / handoff / share / serve --mcp
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
   web/             Vite + React：包浏览 + 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
@@ -106,6 +106,20 @@ docker run -d -p 8787:8787 -v relay-data:/data \
 
 安装到用户级目录（`~/.agents/skills` 等）；高危包会被安全扫描阻断，MCP 工具以 `isError` 返回原因。
 
+## 从其他 registry 导入（ClawHub / Smithery / skills.sh）
+
+```bash
+agentshare import clawhub steipete/weather --out ./weather        # skill -> offline pack
+agentshare import smithery upstash/context7-mcp --out ./context7  # MCP server -> endpoint pack
+agentshare import skills-sh vercel-labs/skills --skill find-skills --out ./find-skills
+agentshare push ./weather   # 审核后用既有的扫描/签名流程发布
+```
+
+- **clawhub**：公开 API 拉取 skill zip 与元数据（版本、主题、所需环境变量名），生成 offline pack。
+- **smithery**：读取公开 registry 的服务器信息，生成 endpoint pack（MCP URL + 说明用 SKILL.md），安装时输出在线端点。
+- **skills-sh**：其 API 需要 Vercel OIDC，这里直接从 GitHub 源仓库导入（git tree + 逐文件，`raw.githubusercontent.com` 不可达时回退 contents API；设置 `GITHUB_TOKEN` 提高限额）。`--skill` 选单个技能，不传则整仓全部 skill 导入为一个多 skill pack。
+- 导入只写本地目录，不执行任何内容；发布前仍走 `push` 的安全扫描，安装仍校验签名。
+
 ## 分享任意 A2A agent（endpoint 模式）
 
 任何实现了 A2A 协议（v1.0 `SendMessage`，兼容旧 `message/send`）并且能访问到 Agent Card 的 agent，都可以一条链接分享给访客，不需要你在本机跑任何插件：
@@ -170,7 +184,7 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 - **P0**：离线包发布/安装链路可用（CLI + registry + Web）。
 - **M1 在线交接**：真实 DSH + 真实模型端到端验证；只读白名单、`share_create`、公网部署、endpoint（A2A）分享、A2A facade 均完成；剩插件 npm 分发。
 - **M2 跨工具交接**：`handoff/v0` 导出（DSH）→ 导入（Codex，真实续做验证）→ 可对话交接页 → 成果回流（submission/v0）完成。
-- **P1 离线包 MVP**：diff、update/lockfile、发布扫描、账号（OIDC）、星标、签名、`export`、`serve --mcp` 完成；剩互操作导入（ClawHub / Smithery / skills.sh）与 npm 首发（待登录）。
+- **P1 离线包 MVP**：diff、update/lockfile、发布扫描、账号（OIDC）、星标、签名、`export`、互操作导入（ClawHub / Smithery / skills.sh）、`serve --mcp` 完成；剩 CI 发布模板真实仓库验证与 npm 首发（待登录）。
 - 联调细节与修复记录见 `docs/design/m1-online-handoff.md`。
 
 License: MIT

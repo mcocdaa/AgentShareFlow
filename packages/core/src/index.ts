@@ -7,6 +7,7 @@ export * from "./diff.js";
 export * from "./signing.js";
 export * from "./pack.js";
 export * from "./export.js";
+export * from "./import.js";
 export * from "./harness.js";
 export * from "./share.js";
 export * from "./a2a.js";

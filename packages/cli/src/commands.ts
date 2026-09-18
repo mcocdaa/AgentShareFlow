@@ -17,6 +17,10 @@ import {
   encodePublicKeyHeader,
   exportPackSkills,
   formatScanFinding,
+  importFromClawHub,
+  importFromSkillsSh,
+  importFromSmithery,
+  type ImportResult,
   generateSigningKeyPair,
   keyFingerprint,
   readLockfile,
@@ -701,6 +705,55 @@ export async function installCommand(
   if (result.endpoint) console.log(`online  ${result.endpoint.type} ${result.endpoint.url}`);
   if (result.secrets.length > 0) console.log(`secrets ${result.secrets.join(", ")}`);
   if (result.installed.length === 0) console.log("nothing installed");
+}
+
+export interface ImportCliOptions {
+  out?: string;
+  name?: string;
+  skill?: string;
+  version?: string;
+  force?: boolean;
+  json?: boolean;
+}
+
+export async function importCommand(
+  provider: string,
+  source: string,
+  options: ImportCliOptions,
+): Promise<void> {
+  let result: ImportResult;
+  if (provider === "smithery") {
+    result = await importFromSmithery(source, options);
+  } else if (provider === "clawhub") {
+    result = await importFromClawHub(source, options);
+  } else if (provider === "skills-sh") {
+    result = await importFromSkillsSh(source, options);
+  } else {
+    throw new Error(`unknown provider "${provider}" (use smithery, clawhub, or skills-sh)`);
+  }
+
+  if (options.json) {
+    console.log(
+      JSON.stringify(
+        {
+          provider: result.provider,
+          source: result.source,
+          dir: result.dir,
+          manifest: result.manifest,
+          files: result.files,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  console.log(`import  ${result.provider} ${result.source}`);
+  console.log(`pack    ${result.manifest.name}@${result.manifest.version} (${result.manifest.mode})`);
+  console.log(`files   ${result.files.length}`);
+  console.log(`dir     ${result.dir}`);
+  const relative = path.relative(process.cwd(), result.dir);
+  console.log(`next    agentshare push ${relative.startsWith("..") || path.isAbsolute(relative) ? result.dir : relative}`);
 }
 
 export interface ExportOptions {

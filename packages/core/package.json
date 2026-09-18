@@ -41,6 +41,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "tar": "^7.5.22",
     "zod": "^4.6.5"
   },

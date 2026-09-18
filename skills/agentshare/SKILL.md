@@ -31,6 +31,9 @@ agentshare info <owner>/<name>[@version] [--json]
 agentshare install <owner>/<name>[@version] --target <targets>
 agentshare update [owner/name] [--dry-run]    # reinstall locked packs to latest
 agentshare export <owner>/<name> --out <dir>  # unpack skills as plain SKILL.md directories
+agentshare import clawhub <owner/slug> [--out <dir>]        # ClawHub skill -> local pack
+agentshare import smithery <qualifiedName> [--out <dir>]    # Smithery MCP server -> endpoint pack
+agentshare import skills-sh <owner/repo> [--skill <name>]   # GitHub skills.sh source -> local pack
 agentshare diff <from> <to> [--json]           # compare two pack versions file by file
 agentshare star <owner>/<name>                 # star a pack (unstar to remove)
 agentshare serve --mcp                         # stdio MCP server: search/info/install as tools
@@ -41,6 +44,8 @@ Installs are recorded in a lockfile (`agentshare.lock.json`): project installs r
 Targets: `agents` (cross-client default), `claude`, `codex`, `opencode`, `openclaw`, `hermes`, or `all`. Add `--project` to install into the current project (e.g. `.claude/skills`) instead of the user directory. `--force` overwrites.
 
 Use `export` when the destination is not a supported harness or the user wants plain skill folders (e.g. to copy into `~/.claude/skills` manually or feed another registry). It downloads, scans, verifies the digest/signature, and writes one directory per skill root under `--out`.
+
+Use `import` to bring third-party skills into a local pack before publishing. It only writes files to a local directory and executes nothing; `push` still scans and `install` still verifies. For skills.sh sources set `GITHUB_TOKEN` to raise GitHub API limits; `--skill` picks one skill, otherwise all skills in the repo become one multi-skill pack.
 
 ## Continuing a handoff in Codex
 
