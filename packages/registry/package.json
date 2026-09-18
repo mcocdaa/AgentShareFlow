@@ -8,18 +8,20 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "tsx --watch src/server.ts",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@agentshare/core": "workspace:*",
     "@hono/node-server": "^2.1.1",
+    "@hono/oidc-auth": "^1.10.0",
     "hono": "^4.13.8"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
   }
 }

@@ -42,7 +42,7 @@
 
 ## P1 — 离线包 MVP（4–6 周）
 
-- [ ] 账号体系（OIDC / magic link），org / 命名空间
+- [x] 账号体系（OIDC）：官方 `@hono/oidc-auth`（登录/回调/登出/`/me`），会话可代替 Bearer 作为 owner；org/命名空间用 `OIDC_OWNER_MAP` 映射；未做 magic link（需邮件服务）
 - [x] 版本 diff：`agentshare diff <from> <to>`（文件级 added/removed/changed + 行数，`--json`）
 - [ ] 发布 pipeline：CI 发布（`examples/publish-workflow.yml` 模板已给，待真实仓库验证）、多 skill pack 示例
 - [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）

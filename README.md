@@ -157,6 +157,8 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 - CLI 配置存于 `~/.config/agentshare/config.json`（可用 `AGENTSHARE_CONFIG` 覆盖路径）。
 - 发布不可变：`owner/name@version` 已存在返回 409；分享链接 id 即能力 token，可随时 revoke。
 - 发布扫描：`push`/`install`/`update` 扫描提示注入与危险命令，`high` 阻断（`--allow-risky` 显式越过）；registry 发布侧再次拦截。规则见 `docs/spec/agent-pack.md`。
+- 账号（可选）：设置 `OIDC_ISSUER` 等四项后启用 OIDC 登录（官方 `@hono/oidc-auth`），浏览器会话可代替 token 作为 owner，org 用 `OIDC_OWNER_MAP` 映射。见 `.env.example`。
+
 
 ## 状态
 

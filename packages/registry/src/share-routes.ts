@@ -17,13 +17,14 @@ import {
 import { Hono, type Context } from "hono";
 import type { SSEStreamingApi } from "hono/streaming";
 import { streamSSE } from "hono/streaming";
-import { authenticate } from "./auth.js";
 import {
   type RegistryDb,
   type ShareMessageRow,
   type ShareRow,
   type ShareSubmissionRow,
 } from "./db.js";
+import { resolveOwner } from "./identity.js";
+import type { OidcConfig } from "./oidc.js";
 import type { HubStream, ShareHub } from "./share-hub.js";
 
 const WINDOW_MS = 60_000;
@@ -187,6 +188,7 @@ export interface ShareRouteDeps {
   hub: ShareHub;
   publicUrl?: string;
   a2aReplyTimeoutMs?: number;
+  oidc?: OidcConfig;
 }
 
 export function createShareRoutes({
@@ -194,6 +196,7 @@ export function createShareRoutes({
   hub,
   publicUrl,
   a2aReplyTimeoutMs = A2A_DEFAULT_REPLY_TIMEOUT_MS,
+  oidc,
 }: ShareRouteDeps): Hono {
   const app = new Hono();
   const hits = new Map<string, number[]>();
@@ -212,7 +215,6 @@ export function createShareRoutes({
     return true;
   };
 
-  const owner = (header: string | undefined): string | undefined => authenticate(header)?.owner;
 
   const respondWithA2A = async (share: ShareRow, sessionId: string, content: string): Promise<void> => {
     const finish = (role: ShareMessageRow["role"], text: string): void => {
@@ -238,7 +240,7 @@ export function createShareRoutes({
   };
 
   app.post("/shares", async (c) => {
-    const who = owner(c.req.header("authorization"));
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
 
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -308,8 +310,8 @@ export function createShareRoutes({
     return c.json(detail(share, hub, baseUrl(c.req.url)), 201);
   });
 
-  app.get("/shares", (c) => {
-    const who = owner(c.req.header("authorization"));
+  app.get("/shares", async (c) => {
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
     const base = baseUrl(c.req.url);
     return c.json({ items: db.listShares(who).map((share) => summary(share, hub, base)) });
@@ -321,8 +323,8 @@ export function createShareRoutes({
     return c.json(detail(share, hub, baseUrl(c.req.url)));
   });
 
-  app.post("/shares/:id/revoke", (c) => {
-    const who = owner(c.req.header("authorization"));
+  app.post("/shares/:id/revoke", async (c) => {
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
@@ -334,8 +336,8 @@ export function createShareRoutes({
     return c.json(summary({ ...share, status: "revoked" }, hub, baseUrl(c.req.url)));
   });
 
-  app.get("/shares/:id/transcript", (c) => {
-    const who = owner(c.req.header("authorization"));
+  app.get("/shares/:id/transcript", async (c) => {
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
@@ -502,10 +504,10 @@ export function createShareRoutes({
     return c.json(submissionPayload(submission), 201);
   });
 
-  app.get("/shares/:id/submissions", (c) => {
+  app.get("/shares/:id/submissions", async (c) => {
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
-    const isOwner = owner(c.req.header("authorization")) === share.owner;
+    const isOwner = (await resolveOwner(c, oidc)) === share.owner;
     if (isOwner) {
       return c.json({
         items: db.listShareSubmissions(share.id).map(submissionPayload),
@@ -525,7 +527,7 @@ export function createShareRoutes({
   });
 
   app.post("/shares/:id/submissions/:submissionId/decision", async (c) => {
-    const who = owner(c.req.header("authorization"));
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
     const share = db.getShare(c.req.param("id"));
     if (!share) return c.json({ error: "not found" }, 404);
@@ -684,7 +686,7 @@ export function createShareRoutes({
 
   app.get("/tunnel/:shareId/events", (c) =>
     streamSSE(c, async (stream) => {
-      const who = owner(c.req.header("authorization"));
+      const who = await resolveOwner(c, oidc);
       if (!who) {
         await stream.close();
         return;
@@ -733,7 +735,7 @@ export function createShareRoutes({
   );
 
   app.post("/tunnel/:shareId/frames", async (c) => {
-    const who = owner(c.req.header("authorization"));
+    const who = await resolveOwner(c, oidc);
     if (!who) return c.json({ error: "unauthorized" }, 401);
     const share = db.getShare(c.req.param("shareId"));
     if (!share) return c.json({ error: "not found" }, 404);

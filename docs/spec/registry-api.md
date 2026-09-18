@@ -8,6 +8,7 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 - 服务端环境变量 `AGENTSHARE_TOKENS=token:owner,token2:owner2`。
 - 未设置 `AGENTSHARE_TOKENS` 时为开发模式：任意非空 token，owner 取 `AGENTSHARE_DEV_OWNER`（默认 `dev`）。
 - owner 命名空间：小写字母/数字/连字符，≤40。
+- **OIDC 会话（可选）**：设置 `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUTH_SECRET`（≥32 字符）后启用，基于官方 `@hono/oidc-auth`（不自定义流程）。端点：`GET /api/v1/auth/login`（无会话 302 到 IdP）、`GET /api/v1/auth/callback`、`GET /api/v1/auth/logout`、`GET /api/v1/me`。owner 由 `OIDC_OWNER_CLAIM`（默认 `email`）映射：先查 `OIDC_OWNER_MAP`（`值:owner` 逗号列表），否则取邮箱本地部分 slug 化。已登录会话在所有拥有者接口上可代替 Bearer token；Bearer 优先。IdP 需支持发现端点与 refresh token，且 issuer 必须是 HTTPS（oauth4webapi 拒绝 HTTP）。
 
 ## 端点
 

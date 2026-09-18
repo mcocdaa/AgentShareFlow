@@ -57,6 +57,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.8)
+      '@hono/oidc-auth':
+        specifier: ^1.10.0
+        version: 1.10.0(hono@4.13.8)
       hono:
         specifier: ^4.13.8
         version: 4.13.8
@@ -70,6 +73,9 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      vitest:
+        specifier: ^5.0.1
+        version: 5.0.1(@types/node@22.20.3)(vite@8.3.0(@types/node@22.20.3)(esbuild@0.28.2)(tsx@4.23.13))
 
   packages/web:
     dependencies:
@@ -259,6 +265,12 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
+
+  '@hono/oidc-auth@1.10.0':
+    resolution: {integrity: sha512-rWJJqZcArgXMxWnJs8dVINGSa8gpmMZjASR790mvq9mMzNirVLa1n6PA7exkWjQiip48UR77ATSncvoCiqmX0g==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      hono: '>=3.0.0'
 
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -692,6 +704,9 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  oauth4webapi@3.8.8:
+    resolution: {integrity: sha512-8N28E+a/oxfXWBgOMt+ZP/JUf/XR+IFbvkAEPP3gznXOMv9BpAAwiIj0TFNz3tGTPc0ZQ8zmWBNgN1nAys0gng==}
+
   obug@2.2.1:
     resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
     engines: {node: '>=12.20.0'}
@@ -945,6 +960,11 @@ snapshots:
   '@hono/node-server@2.1.1(hono@4.13.8)':
     dependencies:
       hono: 4.13.8
+
+  '@hono/oidc-auth@1.10.0(hono@4.13.8)':
+    dependencies:
+      hono: 4.13.8
+      oauth4webapi: 3.8.8
 
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
@@ -1223,6 +1243,8 @@ snapshots:
       minipass: 7.1.3
 
   nanoid@3.3.19: {}
+
+  oauth4webapi@3.8.8: {}
 
   obug@2.2.1: {}
 

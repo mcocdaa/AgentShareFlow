@@ -13,8 +13,9 @@ import {
   scanPack,
 } from "@agentshare/core";
 import { Hono } from "hono";
-import { authenticate } from "./auth.js";
 import { type PackRow, type RegistryDb } from "./db.js";
+import { resolveOwner } from "./identity.js";
+import type { OidcConfig } from "./oidc.js";
 
 function pick(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -48,9 +49,10 @@ function toDetail(row: PackRow, versions: string[]) {
 export interface PackRouteDeps {
   db: RegistryDb;
   packsDir: string;
+  oidc?: OidcConfig;
 }
 
-export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
+export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
   const app = new Hono();
 
   app.get("/search", (c) => {
@@ -88,9 +90,9 @@ export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
   });
 
   app.post("/agents", async (c) => {
-    const auth = authenticate(c.req.header("authorization"));
-    if (!auth) return c.json({ error: "unauthorized" }, 401);
-    if (!OWNER_PATTERN.test(auth.owner)) {
+    const owner = await resolveOwner(c, oidc);
+    if (!owner) return c.json({ error: "unauthorized" }, 401);
+    if (!OWNER_PATTERN.test(owner)) {
       return c.json({ error: "invalid owner namespace" }, 400);
     }
 
@@ -123,10 +125,10 @@ export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
       );
     }
 
-    if (db.get(auth.owner, manifest.name, manifest.version)) {
+    if (db.get(owner, manifest.name, manifest.version)) {
       return c.json(
         {
-          error: `${auth.owner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
+          error: `${owner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
         },
         409,
       );
@@ -162,13 +164,13 @@ export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
       await fsp.rm(scanTmp, { recursive: true, force: true });
     }
 
-    const dir = path.join(packsDir, auth.owner, manifest.name);
+    const dir = path.join(packsDir, owner, manifest.name);
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${manifest.version}.tgz`);
     fs.writeFileSync(file, bytes);
 
     db.insert({
-      owner: auth.owner,
+      owner: owner,
       name: manifest.name,
       version: manifest.version,
       title: manifest.title,
@@ -185,7 +187,7 @@ export function createPackRoutes({ db, packsDir }: PackRouteDeps): Hono {
     return c.json(
       {
         ok: true,
-        ref: `${auth.owner}/${manifest.name}@${manifest.version}`,
+        ref: `${owner}/${manifest.name}@${manifest.version}`,
         digest,
         size: bytes.length,
       },

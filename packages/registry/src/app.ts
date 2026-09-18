@@ -4,6 +4,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { RegistryDb } from "./db.js";
+import { createOidcRoutes, oidcConfigFromEnv, oidcMiddleware } from "./oidc.js";
 import { createPackRoutes } from "./pack-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
@@ -24,6 +25,9 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
   const app = new Hono();
   app.use("*", cors());
 
+  const oidc = oidcConfigFromEnv();
+  if (oidc !== undefined) app.use("*", oidcMiddleware(oidc));
+
   if (webDir !== undefined && fs.existsSync(path.join(webDir, "index.html"))) {
     app.use(
       "*",
@@ -40,7 +44,9 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
 
   app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
 
-  app.route("/api/v1", createPackRoutes({ db, packsDir }));
+  if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc));
+
+  app.route("/api/v1", createPackRoutes({ db, packsDir, ...oidc === undefined ? {} : { oidc } }));
   app.route(
     "/api/v1",
     createShareRoutes({
@@ -48,6 +54,7 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
       hub,
       ...publicUrl === undefined ? {} : { publicUrl },
       ...a2aReplyTimeoutMs === undefined ? {} : { a2aReplyTimeoutMs },
+      ...oidc === undefined ? {} : { oidc },
     }),
   );
 
