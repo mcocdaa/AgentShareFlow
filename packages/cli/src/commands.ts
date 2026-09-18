@@ -11,6 +11,7 @@ import {
   previewHandoffImport,
   importHandoff,
   createPackTarball,
+  diffPackDirs,
   extractPackTarball,
   formatScanFinding,
   readLockfile,
@@ -363,6 +364,55 @@ function snapshot(entry: LockEntry): Omit<UpdateResult, "file" | "to" | "status"
     from: entry.version,
     dest: entry.dest,
   };
+}
+
+export async function diffCommand(
+  fromRef: string,
+  toRef: string,
+  options: { registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const client = new RegistryClient(resolveRegistry(config, options.registry), resolveToken(config, options.token));
+  const from = parseRef(fromRef);
+  const to = parseRef(toRef);
+  const fromDetail = await client.info(from.owner, from.name, from.version);
+  const toDetail = await client.info(to.owner, to.name, to.version);
+
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-diff-"));
+  try {
+    const download = async (prefix: string, detail: typeof fromDetail): Promise<string> => {
+      const bytes = await client.downloadBytes(detail.owner, detail.name, detail.version);
+      const tarball = path.join(tmp, `${prefix}.tgz`);
+      await fsp.writeFile(tarball, bytes);
+      const dir = path.join(tmp, prefix);
+      await extractPackTarball(tarball, dir);
+      return dir;
+    };
+    const fromDir = await download("from", fromDetail);
+    const toDir = await download("to", toDetail);
+    const diff = await diffPackDirs(fromDir, toDir);
+    const fromLabel = `${fromDetail.owner}/${fromDetail.name}@${fromDetail.version}`;
+    const toLabel = `${toDetail.owner}/${toDetail.name}@${toDetail.version}`;
+
+    if (options.json) {
+      console.log(JSON.stringify({ from: fromLabel, to: toLabel, diff }, null, 2));
+      return;
+    }
+    console.log(`${fromLabel} -> ${toLabel}`);
+    const changed = diff.files.filter((file) => file.status !== "unchanged");
+    if (changed.length === 0) {
+      console.log("no changes");
+      return;
+    }
+    for (const file of changed) {
+      const tag = file.status === "added" ? "A" : file.status === "removed" ? "D" : "M";
+      const counts = file.binary ? "binary" : `+${file.additions} -${file.deletions}`;
+      console.log(`${tag}  ${file.path}  ${counts}`);
+    }
+    console.log(`${diff.added} added, ${diff.removed} removed, ${diff.changed} changed`);
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
 }
 
 export async function searchCommand(

@@ -47,7 +47,10 @@ node packages/cli/dist/index.js push examples/hello-handoff
 node packages/cli/dist/index.js search handoff
 node packages/cli/dist/index.js install myowner/hello-handoff --target agents
 node packages/cli/dist/index.js update myowner/hello-handoff --dry-run   # 安装有 lockfile 记录，可升级
+node packages/cli/dist/index.js diff myowner/hello-handoff@0.1.0 myowner/hello-handoff@0.2.0
 ```
+
+CI 发布：复制 `examples/publish-workflow.yml` 到 pack 仓库的 `.github/workflows/`，配好 `AGENTSHARE_REGISTRY` / `AGENTSHARE_TOKEN` secrets，推 `v*` tag 即自动校验、扫描并发布。
 
 开发模式（免构建）：
 

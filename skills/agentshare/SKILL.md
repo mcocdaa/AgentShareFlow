@@ -30,6 +30,7 @@ agentshare search <query> [--json]
 agentshare info <owner>/<name>[@version] [--json]
 agentshare install <owner>/<name>[@version] --target <targets>
 agentshare update [owner/name] [--dry-run]    # reinstall locked packs to latest
+agentshare diff <from> <to> [--json]           # compare two pack versions file by file
 agentshare serve --mcp                         # stdio MCP server: search/info/install as tools
 ```
 

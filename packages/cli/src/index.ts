@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
+  diffCommand,
   handoffImportCommand,
   infoCommand,
   installPack,
@@ -114,6 +115,16 @@ program.command("handoff")
   .option("--confirm <digest>", "confirm the exact preview digest")
   .option("--json", "machine-readable preview or result")
   .action(handoffImportCommand);
+
+program
+  .command("diff")
+  .description("compare two pack versions file by file")
+  .argument("<from>", "owner/name[@version]")
+  .argument("<to>", "owner/name[@version]")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(diffCommand);
 
 program
   .command("update")

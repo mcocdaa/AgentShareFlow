@@ -1,0 +1,30 @@
+name: Publish Agent Pack
+
+# 复制到 pack 仓库的 .github/workflows/publish.yml。
+# 推 v* tag 时校验、扫描并发布该目录到 AgentShare registry。
+# 需要仓库 Secrets：AGENTSHARE_REGISTRY（如 https://relay.example.com）、AGENTSHARE_TOKEN。
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate, scan, and publish
+        run: |
+          npx -y @agentshare/cli push . \
+            --registry "$AGENTSHARE_REGISTRY" \
+            --token "$AGENTSHARE_TOKEN"
+        env:
+          AGENTSHARE_REGISTRY: ${{ secrets.AGENTSHARE_REGISTRY }}
+          AGENTSHARE_TOKEN: ${{ secrets.AGENTSHARE_TOKEN }}

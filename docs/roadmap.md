@@ -43,7 +43,8 @@
 ## P1 — 离线包 MVP（4–6 周）
 
 - [ ] 账号体系（OIDC / magic link），org / 命名空间
-- [ ] 发布 pipeline：CI 发布（GitHub Action）、多 skill pack、版本 diff
+- [x] 版本 diff：`agentshare diff <from> <to>`（文件级 added/removed/changed + 行数，`--json`）
+- [ ] 发布 pipeline：CI 发布（`examples/publish-workflow.yml` 模板已给，待真实仓库验证）、多 skill pack 示例
 - [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）
 - [x] 发布扫描：`high/medium` 规则（提示注入、危险命令、隐藏字符）；`push`/`install`/`update` 本地拦截 + registry 服务端拦截，`--allow-risky` 显式越过
 - [ ] manifest 签名（minisign）、安装量 / 星标
