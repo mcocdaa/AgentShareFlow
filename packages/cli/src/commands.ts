@@ -5,14 +5,19 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   HARNESSES,
+  LOCKFILE_FILENAME,
   ShareClient,
+  type Harness,
   previewHandoffImport,
   importHandoff,
-  type Harness,
   createPackTarball,
   extractPackTarball,
+  readLockfile,
   readPack,
   resolveSkillsDir,
+  upsertInstall,
+  writeLockfile,
+  type LockEntry,
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
@@ -228,6 +233,113 @@ export async function pushCommand(
   }
 }
 
+interface UpdateResult {
+  file: string;
+  owner: string;
+  name: string;
+  from: string;
+  to: string;
+  dest: string;
+  status: "updated" | "planned" | "up-to-date";
+}
+
+export async function updateCommand(
+  ref: string | undefined,
+  options: { registry?: string; token?: string; dryRun?: boolean; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const registry = resolveRegistry(config, options.registry);
+  const client = new RegistryClient(registry, resolveToken(config, options.token));
+  const filter = ref === undefined ? undefined : parseRef(ref);
+  const files = [
+    path.join(process.cwd(), LOCKFILE_FILENAME),
+    path.join(path.dirname(configPath()), LOCKFILE_FILENAME),
+  ];
+  const results: UpdateResult[] = [];
+
+  for (const file of files) {
+    const lock = await readLockfile(file);
+    if (lock.installs.length === 0) continue;
+    let next = lock;
+    let dirty = false;
+    for (const entry of lock.installs) {
+      if (filter !== undefined && (entry.owner !== filter.owner || entry.name !== filter.name)) continue;
+      const detail = await client.info(entry.owner, entry.name, filter?.version);
+      if (detail.version === entry.version) {
+        results.push({ ...snapshot(entry), file, to: detail.version, status: "up-to-date" });
+        continue;
+      }
+      if (options.dryRun) {
+        results.push({ ...snapshot(entry), file, to: detail.version, status: "planned" });
+        continue;
+      }
+      const bytes = await client.downloadBytes(entry.owner, entry.name, detail.version);
+      const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-update-"));
+      try {
+        const tarball = path.join(tmp, "pack.tgz");
+        await fsp.writeFile(tarball, bytes);
+        const extracted = path.join(tmp, "pack");
+        await extractPackTarball(tarball, extracted);
+        const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
+        const wanted = path.basename(entry.dest);
+        const rel = roots.find((root) =>
+          (root === "." ? detail.manifest.name : path.basename(root)) === wanted,
+        );
+        if (rel === undefined) throw new Error(`${entry.owner}/${entry.name} no longer provides ${wanted}`);
+        const source = rel === "." ? extracted : path.join(extracted, rel);
+        await fsp.rm(entry.dest, { recursive: true, force: true });
+        await fsp.mkdir(path.dirname(entry.dest), { recursive: true });
+        await fsp.cp(source, entry.dest, { recursive: true });
+      } finally {
+        await fsp.rm(tmp, { recursive: true, force: true });
+      }
+      next = upsertInstall(next, {
+        ...entry,
+        version: detail.version,
+        digest: detail.digest,
+        mode: detail.manifest.mode,
+        registry,
+        installedAt: new Date().toISOString(),
+      });
+      dirty = true;
+      results.push({ ...snapshot(entry), file, to: detail.version, status: "updated" });
+    }
+    if (dirty) await writeLockfile(file, next);
+  }
+
+  if (options.json) {
+    console.log(JSON.stringify({ results }, null, 2));
+    return;
+  }
+  if (results.length === 0) {
+    console.log("nothing to update (no matching lockfile entries)");
+    return;
+  }
+  for (const item of results) {
+    switch (item.status) {
+      case "up-to-date":
+        console.log(`ok      ${item.owner}/${item.name}@${item.from}`);
+        break;
+      case "planned":
+        console.log(`plan    ${item.owner}/${item.name}  ${item.from} -> ${item.to}  ${item.dest}`);
+        break;
+      case "updated":
+        console.log(`update  ${item.owner}/${item.name}  ${item.from} -> ${item.to}  ${item.dest}`);
+        break;
+    }
+  }
+  if (options.dryRun) console.log("dry-run: nothing changed");
+}
+
+function snapshot(entry: LockEntry): Omit<UpdateResult, "file" | "to" | "status"> {
+  return {
+    owner: entry.owner,
+    name: entry.name,
+    from: entry.version,
+    dest: entry.dest,
+  };
+}
+
 export async function searchCommand(
   query: string,
   options: { registry?: string; json?: boolean },
@@ -292,10 +404,8 @@ export async function installCommand(
   },
 ): Promise<void> {
   const config = loadConfig();
-  const client = new RegistryClient(
-    resolveRegistry(config, options.registry),
-    resolveToken(config, options.token),
-  );
+  const registry = resolveRegistry(config, options.registry);
+  const client = new RegistryClient(registry, resolveToken(config, options.token));
   const { owner, name, version } = parseRef(ref);
   const detail = await client.info(owner, name, version);
   const bytes = await client.downloadBytes(owner, name, detail.version);
@@ -309,7 +419,7 @@ export async function installCommand(
 
     const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
     const targets = resolveTargets(options.target);
-    const installed: string[] = [];
+    const installed: Array<{ target: Harness; dest: string }> = [];
 
     for (const harness of targets) {
       const baseDir = options.dir
@@ -327,12 +437,36 @@ export async function installCommand(
         await fsp.rm(dest, { recursive: true, force: true });
         await fsp.mkdir(baseDir, { recursive: true });
         await fsp.cp(source, dest, { recursive: true });
-        installed.push(dest);
+        installed.push({ target: harness, dest });
       }
     }
 
+    if (installed.length > 0) {
+      const file = options.project
+        ? path.join(process.cwd(), LOCKFILE_FILENAME)
+        : path.join(path.dirname(configPath()), LOCKFILE_FILENAME);
+      const scope = options.project ? "project" : options.dir ? "dir" : "user";
+      let lock = await readLockfile(file);
+      for (const item of installed) {
+        lock = upsertInstall(lock, {
+          owner,
+          name,
+          version: detail.version,
+          digest: detail.digest,
+          mode: detail.manifest.mode,
+          target: item.target,
+          scope,
+          dest: item.dest,
+          registry,
+          installedAt: new Date().toISOString(),
+        });
+      }
+      await writeLockfile(file, lock);
+      console.log(`record  ${file}`);
+    }
+
     console.log(`install ${owner}/${name}@${detail.version} (mode: ${detail.manifest.mode})`);
-    for (const dir of installed) console.log(`  -> ${dir}`);
+    for (const item of installed) console.log(`  -> ${item.dest}`);
     if (detail.manifest.mode === "endpoint" && detail.manifest.endpoint) {
       console.log(`online  ${detail.manifest.endpoint.type} ${detail.manifest.endpoint.url}`);
     }

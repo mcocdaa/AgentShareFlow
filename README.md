@@ -11,7 +11,7 @@
 ```
 packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
-  cli/             agentshare CLI：login / pack / push / search / info / install
+  cli/             agentshare CLI：login / pack / push / search / info / install / update / handoff / share
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
   web/             Vite + React：包浏览 + 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
@@ -46,6 +46,7 @@ node packages/cli/dist/index.js login --registry http://localhost:8787 --token d
 node packages/cli/dist/index.js push examples/hello-handoff
 node packages/cli/dist/index.js search handoff
 node packages/cli/dist/index.js install myowner/hello-handoff --target agents
+node packages/cli/dist/index.js update myowner/hello-handoff --dry-run   # 安装有 lockfile 记录，可升级
 ```
 
 开发模式（免构建）：

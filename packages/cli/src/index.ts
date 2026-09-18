@@ -5,6 +5,7 @@ import {
   infoCommand,
   shareDecideCommand,
   shareSubmissionsCommand,
+  updateCommand,
   installCommand,
   loginCommand,
   packCommand,
@@ -107,6 +108,16 @@ program.command("handoff")
   .option("--confirm <digest>", "confirm the exact preview digest")
   .option("--json", "machine-readable preview or result")
   .action(handoffImportCommand);
+
+program
+  .command("update")
+  .description("reinstall locked packs to their latest versions")
+  .argument("[ref]", "owner/name[@version], defaults to every locked pack")
+  .option("--dry-run", "show planned updates without installing")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(updateCommand);
 
 try {
   await program.parseAsync(process.argv);

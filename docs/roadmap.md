@@ -44,7 +44,7 @@
 
 - [ ] 账号体系（OIDC / magic link），org / 命名空间
 - [ ] 发布 pipeline：CI 发布（GitHub Action）、多 skill pack、版本 diff
-- [ ] 安装升级：`agentshare update`、lockfile、来源记录
+- [x] 安装升级：`agentshare update`（`--dry-run` 先看版本计划）、lockfile（`agentshare-lock/v0`）、来源记录（digest/registry/target/scope/dest）
 - [ ] 质量与安全：manifest 签名（minisign）、发布扫描（提示注入 / 危险命令）、安装量 / 星标
 - [ ] 互操作：导入 ClawHub / Smithery / skills.sh；导出为标准 SKILL.md 目录
 - [ ] `agentshare serve --mcp`：让 agent 直接搜索/安装注册表

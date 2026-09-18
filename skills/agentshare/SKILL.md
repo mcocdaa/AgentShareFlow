@@ -29,7 +29,10 @@ agentshare push [dir] [--dry-run]             # validate, pack, publish
 agentshare search <query> [--json]
 agentshare info <owner>/<name>[@version] [--json]
 agentshare install <owner>/<name>[@version] --target <targets>
+agentshare update [owner/name] [--dry-run]    # reinstall locked packs to latest
 ```
+
+Installs are recorded in a lockfile (`agentshare.lock.json`): project installs record in the project root, user-level installs in the CLI config directory. Each entry keeps owner/name/version, tarball digest, target, scope, destination, and registry, so `agentshare update` can reinstall to the same places and `--dry-run` shows the version plan first.
 
 Targets: `agents` (cross-client default), `claude`, `codex`, `opencode`, `openclaw`, `hermes`, or `all`. Add `--project` to install into the current project (e.g. `.claude/skills`) instead of the user directory. `--force` overwrites.
 
