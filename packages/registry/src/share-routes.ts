@@ -14,7 +14,7 @@ import {
   sendA2AMessage,
   type TunnelFrame,
 } from "@agentshare/core";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { SSEStreamingApi } from "hono/streaming";
 import { streamSSE } from "hono/streaming";
 import { authenticate } from "./auth.js";
@@ -30,6 +30,10 @@ const WINDOW_MS = 60_000;
 const SHARE_LIMIT_PER_WINDOW = 30;
 const SESSION_LIMIT_PER_WINDOW = 10;
 const SUBMISSION_LIMIT_PER_WINDOW = 10;
+const A2A_DEFAULT_REPLY_TIMEOUT_MS = 120_000;
+const A2A_POLL_MS = 100;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function makeHubStream(stream: SSEStreamingApi): HubStream {
   return {
@@ -128,6 +132,46 @@ function submissionPayload(row: ShareSubmissionRow): ShareSubmission {
   };
 }
 
+function agentCardPayload(share: ShareRow, baseUrl: string) {
+  const root = baseUrl.replace(/\/$/, "");
+  const handoff = storedHandoff(share);
+  const description = [
+    `Read-only questions answered by ${share.owner}'s shared agent session`,
+    share.project === null ? undefined : `project: ${share.project}`,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" · ");
+  const skillDescription =
+    handoff === undefined
+      ? "Ask the shared session a question; the owner's live agent answers in read-only mode."
+      : `Continue the handoff "${handoff.title}": ${handoff.goal}`.slice(0, 1000);
+  return {
+    name: share.title,
+    description,
+    version: "0.1.0",
+    url: `${root}/api/v1/shares/${share.id}/a2a`,
+    protocolVersion: "1.0",
+    capabilities: { streaming: false },
+    defaultInputModes: ["text/plain"],
+    defaultOutputModes: ["text/plain"],
+    skills: [{ id: "ask", name: "Ask the shared session", description: skillDescription }],
+    ...handoff === undefined
+      ? {}
+      : { handoff: { id: handoff.id, title: handoff.title, goal: handoff.goal } },
+  };
+}
+
+function partsText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  const texts: string[] = [];
+  for (const part of value) {
+    if (typeof part !== "object" || part === null) continue;
+    const text = (part as Record<string, unknown>)["text"];
+    if (typeof text === "string") texts.push(text);
+  }
+  return texts.join("\n").trim();
+}
+
 function messagePayload(message: ShareMessageRow) {
   return {
     id: message.id,
@@ -142,9 +186,15 @@ export interface ShareRouteDeps {
   db: RegistryDb;
   hub: ShareHub;
   publicUrl?: string;
+  a2aReplyTimeoutMs?: number;
 }
 
-export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono {
+export function createShareRoutes({
+  db,
+  hub,
+  publicUrl,
+  a2aReplyTimeoutMs = A2A_DEFAULT_REPLY_TIMEOUT_MS,
+}: ShareRouteDeps): Hono {
   const app = new Hono();
   const hits = new Map<string, number[]>();
 
@@ -520,6 +570,116 @@ export function createShareRoutes({ db, hub, publicUrl }: ShareRouteDeps): Hono 
     }
 
     return c.json(submissionPayload(updated));
+  });
+
+  const agentCardRoute = (c: Context) => {
+    const share = db.getShare(c.req.param("id") ?? "");
+    if (!share) return c.json({ error: "not found" }, 404);
+    if (share.status === "revoked") return c.json({ error: "share is revoked" }, 410);
+    return c.json(agentCardPayload(share, baseUrl(c.req.url)));
+  };
+  app.get("/shares/:id/agent-card.json", agentCardRoute);
+  app.get("/shares/:id/.well-known/agent-card.json", agentCardRoute);
+
+  app.post("/shares/:id/a2a", async (c) => {
+    const body = (await c.req.json().catch(() => undefined)) as
+      | { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown }
+      | undefined;
+    const id = typeof body?.id === "string" || typeof body?.id === "number" ? body.id : null;
+    const rpcError = (code: number, message: string): Response =>
+      c.json({ jsonrpc: "2.0", id, error: { code, message } });
+
+    if (body === undefined || typeof body.method !== "string") {
+      return rpcError(-32600, "invalid JSON-RPC request");
+    }
+    if (body.method !== "SendMessage" && body.method !== "message/send") {
+      return rpcError(-32601, `method not found: ${body.method}`);
+    }
+
+    const share = db.getShare(c.req.param("id"));
+    if (!share) return rpcError(-32001, "share not found");
+    if (share.status === "revoked") return rpcError(-32010, "share is revoked");
+    if (share.mode !== "tunnel") return rpcError(-32011, "A2A facade is only available for tunnel shares");
+    if (!hub.hasTunnel(share.id)) return rpcError(-32020, "share is offline");
+
+    const params = (body.params ?? {}) as { message?: unknown };
+    const message = (params.message ?? {}) as { parts?: unknown; contextId?: unknown };
+    const content = partsText(message.parts);
+    if (content === "") return rpcError(-32602, "message.parts must include text");
+    if (content.length > 4000) return rpcError(-32602, "message text exceeds 4000 characters");
+
+    const requestedContext =
+      typeof message.contextId === "string" && message.contextId !== "" ? message.contextId : undefined;
+    let session = requestedContext === undefined
+      ? undefined
+      : db.findShareSessionByA2aContext(share.id, requestedContext);
+    if (session === undefined) {
+      const sessionId = randomBytes(12).toString("hex");
+      db.insertShareSession({
+        id: sessionId,
+        share_id: share.id,
+        visitor_name: null,
+        created_at: new Date().toISOString(),
+      });
+      db.setShareSessionA2aContext(sessionId, requestedContext ?? randomBytes(12).toString("hex"));
+      session = db.getShareSession(sessionId);
+    }
+    if (session === undefined) return rpcError(-32000, "failed to create a session");
+
+    if (!allow(`share:${share.id}`, SHARE_LIMIT_PER_WINDOW)) return rpcError(-32029, "rate limit exceeded");
+    if (!allow(`session:${session.id}`, SESSION_LIMIT_PER_WINDOW)) {
+      return rpcError(-32029, "rate limit exceeded");
+    }
+
+    const visitorMessage = db.insertShareMessage({
+      sessionId: session.id,
+      role: "visitor",
+      content,
+      created_at: new Date().toISOString(),
+    });
+    hub.publish(share.id, "message", messagePayload(visitorMessage), session.id);
+
+    const frame: TunnelFrame = {
+      type: "visitor_message",
+      shareId: share.id,
+      sessionId: session.id,
+      messageId: visitorMessage.id,
+      content,
+    };
+    if (!hub.sendToTunnel(share.id, frame)) return rpcError(-32020, "share is offline");
+
+    const deadline = Date.now() + a2aReplyTimeoutMs;
+    let reply: ShareMessageRow | undefined;
+    while (Date.now() < deadline) {
+      reply = db
+        .listShareMessages(share.id, session.id)
+        .find(
+          (message) => message.id > visitorMessage.id && (message.role === "agent" || message.role === "system"),
+        );
+      if (reply !== undefined) break;
+      await sleep(A2A_POLL_MS);
+    }
+    if (reply === undefined) return rpcError(-32030, "the shared agent did not reply in time");
+    if (reply.role === "system") return rpcError(-32040, reply.content);
+
+    return c.json({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        task: {
+          id: `task-${reply.id}`,
+          contextId: session.a2a_context_id ?? undefined,
+          status: { state: "TASK_STATE_COMPLETED" },
+          artifacts: [
+            {
+              artifactId: `message-${reply.id}`,
+              name: "reply",
+              parts: [{ text: reply.content }],
+            },
+          ],
+        },
+      },
+    });
   });
 
   app.get("/tunnel/:shareId/events", (c) =>

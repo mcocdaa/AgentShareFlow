@@ -8,10 +8,12 @@ const port = Number(process.env.PORT ?? 8787);
 const dataDir = path.resolve(process.env.AGENTSHARE_DATA ?? "data");
 const publicUrl = process.env.AGENTSHARE_PUBLIC_URL;
 const webDir = path.resolve(process.env.AGENTSHARE_WEB_DIR ?? path.join(here, "..", "..", "web", "dist"));
+const a2aReplyTimeoutMs = process.env.AGENTSHARE_A2A_TIMEOUT_MS;
 const app = createApp({
   dataDir,
   webDir,
   ...publicUrl === undefined ? {} : { publicUrl },
+  ...a2aReplyTimeoutMs === undefined ? {} : { a2aReplyTimeoutMs: Number(a2aReplyTimeoutMs) },
 });
 
 serve({ fetch: app.fetch, port }, (info) => {

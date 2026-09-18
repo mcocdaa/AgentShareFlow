@@ -96,6 +96,22 @@ relay 会拉取并校验 `/.well-known/agent-card.json`，保存卡片信息，�
 
 本地验证：`pnpm mock:a2a` 起一个 mock A2A agent，再按上面的 curl 创建分享。
 
+## 把 tunnel 分享当 A2A agent 调用
+
+每个 tunnel 分享同时是一个 A2A agent，任何 A2A 客户端都能发现并调用：
+
+```bash
+# Agent Card（`.well-known/agent-card.json` 同义）
+curl https://relay.example.com/api/v1/shares/<id>/agent-card.json
+
+# JSON-RPC：SendMessage（兼容 message/send），contextId 维持多轮
+curl -X POST https://relay.example.com/api/v1/shares/<id>/a2a \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"message":{"parts":[{"text":"这个任务现在到哪一步了？"}]}}}'
+```
+
+也可用 core 客户端：`fetchAgentCard(cardUrl)` + `sendA2AMessage(card.url, text, { contextId })`。离线/撤销分别返回 `-32020`/`-32010`。
+
 ## 在线交接（M1，DSH 插件）
 
 ```bash
@@ -122,7 +138,8 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 ## 状态
 
 - **P0**：离线包发布/安装链路可用（CLI + registry + Web）。
-- **M1 在线交接**：已在真实 DSH + 真实模型上端到端验证——访客提问 → 独立只读 fork 会话 → 流式回复 → transcript 落库；剩下只读对抗性审计、`share_create` 工具与插件 npm 分发（见 `docs/roadmap.md`）。
+- **M1 在线交接**：真实 DSH + 真实模型端到端验证；只读白名单、`share_create`、公网部署、endpoint（A2A）分享、A2A facade 均完成；剩插件 npm 分发。
+- **M2 跨工具交接**：`handoff/v0` 导出（DSH）→ 导入（Codex，真实续做验证）→ 可对话交接页 → 成果回流（submission/v0）完成。
 - 联调细节与修复记录见 `docs/design/m1-online-handoff.md`。
 
-License: TBD
+License: MIT

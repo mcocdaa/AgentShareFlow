@@ -16,8 +16,8 @@
 - [x] 分发链路：`dsh plugin --profile demo add <目录>` 成功入 profile 且 `--dump-config` 可见；core 以 `file:` 依赖随插件走
 - [x] 公网部署：`AGENTSHARE_PUBLIC_URL` + registry 托管 Web 静态页 + Dockerfile/compose（后台构建验证中）
 - [x] endpoint 分享：任意 A2A agent（AgentCard 校验、`SendMessage` 兼容 `message/send`、`contextId` 多轮）
-- [ ] A2A facade：把 tunnel 分享暴露成 A2A server（`.well-known/agent-card.json` + JSON-RPC），让 A2A 客户端可直接发现/调用
-- [ ] 插件 npm 发布（需把 `@agentshare/core` 发到 npm，或在 tsdown 配置里内联打包）
+- [x] A2A facade：tunnel 分享暴露为 A2A agent（Agent Card + JSON-RPC `SendMessage`/`message/send`，`contextId` 多轮），冒烟含卡片发现、两轮连续、离线/撤销/未知方法错误
+- [ ] 插件 npm 发布：发布准备已完成（包元数据 / README / `release.yml` / `pnpm pack` 校验，workspace 依赖正确改写）；待 `npm login` 后打 `v*` tag 发布
 
 ## M2 — 跨工具交接（进行中）
 

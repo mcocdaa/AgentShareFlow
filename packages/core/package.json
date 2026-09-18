@@ -1,6 +1,13 @@
 {
   "name": "@agentshare/core",
   "version": "0.1.0",
+  "description": "Agent Pack spec, tarball tooling, share tunnel client, A2A client, and handoff contracts for AgentShareFlow.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcocdaa/AgentShareFlow.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,7 +18,21 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "keywords": [
+    "agent",
+    "handoff",
+    "a2a",
+    "agent-pack",
+    "agentshare"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

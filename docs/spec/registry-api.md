@@ -111,6 +111,17 @@ Base: `/api/v1`，JSON；tarball 为 `application/gzip`。
 
 分享详情/`url` 字段：由 `AGENTSHARE_PUBLIC_URL`（或请求来源）拼出 `…/#/share/<id>`；`mode` 标识模式；endpoint 模式附带 `agent: { name, description, skills }`；创建/详情附带完整 `handoff`（若有），列表只给 `hasHandoff`。
 
+### A2A facade（tunnel 分享对外即 A2A agent）
+
+任何 A2A 客户端可通过分享 id 发现并调用 tunnel 分享：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/shares/:id/agent-card.json` | Agent Card（`.well-known/agent-card.json` 同义路径）；`url` 指向 JSON-RPC 端点，附带 `handoff` 摘要（若有） |
+| POST | `/api/v1/shares/:id/a2a` | JSON-RPC：`SendMessage` 与 `message/send`；`message.contextId` 映射到会话（无则新建并返回），回复取自该会话下一条 `agent` 消息 |
+
+结果：`{ task: { id, contextId, status.state: TASK_STATE_COMPLETED, artifacts: [{ parts: [{ text }] }] } }`。JSON-RPC 错误（HTTP 200）：`-32010` 已撤销、`-32011` endpoint 分享不支持、`-32020` 离线、`-32029` 限流、`-32030` 超时（`AGENTSHARE_A2A_TIMEOUT_MS`，默认 120s）、`-32040` agent 错误帧。同一 contextId 复用同一会话，多轮连续。
+
 ### 成果回流（submission/v0）
 
 | 方法 | 路径 | 说明 |

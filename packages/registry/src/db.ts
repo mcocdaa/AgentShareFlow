@@ -328,6 +328,12 @@ export class RegistryDb {
       .all(shareId) as unknown as ShareSessionRow[];
   }
 
+  findShareSessionByA2aContext(shareId: string, contextId: string): ShareSessionRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM share_sessions WHERE share_id = ? AND a2a_context_id = ?")
+      .get(shareId, contextId) as unknown as ShareSessionRow | undefined;
+  }
+
   setShareSessionDshId(sessionId: string, dshSessionId: string): void {
     this.db
       .prepare("UPDATE share_sessions SET dsh_session_id = ? WHERE id = ?")

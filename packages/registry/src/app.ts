@@ -12,9 +12,10 @@ export interface AppOptions {
   dataDir: string;
   publicUrl?: string;
   webDir?: string;
+  a2aReplyTimeoutMs?: number;
 }
 
-export function createApp({ dataDir, publicUrl, webDir }: AppOptions): Hono {
+export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: AppOptions): Hono {
   const packsDir = path.join(dataDir, "packs");
   fs.mkdirSync(packsDir, { recursive: true });
   const db = new RegistryDb(path.join(dataDir, "registry.db"));
@@ -40,7 +41,15 @@ export function createApp({ dataDir, publicUrl, webDir }: AppOptions): Hono {
   app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
 
   app.route("/api/v1", createPackRoutes({ db, packsDir }));
-  app.route("/api/v1", createShareRoutes({ db, hub, ...publicUrl === undefined ? {} : { publicUrl } }));
+  app.route(
+    "/api/v1",
+    createShareRoutes({
+      db,
+      hub,
+      ...publicUrl === undefined ? {} : { publicUrl },
+      ...a2aReplyTimeoutMs === undefined ? {} : { a2aReplyTimeoutMs },
+    }),
+  );
 
   return app;
 }

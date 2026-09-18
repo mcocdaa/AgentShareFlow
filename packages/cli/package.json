@@ -1,13 +1,34 @@
 {
   "name": "@agentshare/cli",
   "version": "0.1.0",
+  "description": "Command-line client for AgentShareFlow: publish and install Agent Packs, review handoffs, and manage share outcomes.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcocdaa/AgentShareFlow.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "agentshare": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "keywords": [
+    "agent",
+    "agentshare",
+    "cli",
+    "agent-pack",
+    "handoff"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
