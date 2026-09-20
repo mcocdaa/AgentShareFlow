@@ -11,5 +11,6 @@ export * from "./import.js";
 export * from "./harness.js";
 export * from "./ingest.js";
 export * from "./sync.js";
+export * from "./policy.js";
 export * from "./share.js";
 export * from "./a2a.js";

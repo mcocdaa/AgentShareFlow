@@ -15,6 +15,8 @@ import {
   readPackReadme,
   scanPack,
   verifyDigest,
+  parsePolicy,
+  evaluatePolicy,
 } from "@agentshare/core";
 import { Hono } from "hono";
 import { type PackRow, type RegistryDb } from "./db.js";
@@ -257,6 +259,32 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
           },
           400,
         );
+      }
+
+      if (process.env.AGENTS_POLICY_FILE && fs.existsSync(process.env.AGENTS_POLICY_FILE)) {
+        try {
+          const policyContent = JSON.parse(await fsp.readFile(process.env.AGENTS_POLICY_FILE, "utf8"));
+          const policy = parsePolicy(policyContent);
+          const evalResult = evaluatePolicy(policy, {
+            manifest,
+            scan: report,
+            signer: publicKey ? { fingerprint: keyFingerprint(publicKey) } : undefined,
+          });
+          if (!evalResult.passed) {
+            return c.json(
+              {
+                error: `pack rejected by enterprise policy: ${evalResult.policyName}`,
+                details: evalResult.violations.map((v) => `[${v.ruleId}] ${v.message}`).join("; "),
+              },
+              400,
+            );
+          }
+        } catch (err) {
+          return c.json(
+            { error: "policy evaluation error", details: err instanceof Error ? err.message : String(err) },
+            500,
+          );
+        }
       }
     } finally {
       await fsp.rm(scanTmp, { recursive: true, force: true });

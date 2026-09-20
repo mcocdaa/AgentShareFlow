@@ -45,6 +45,11 @@ import {
   type DiscoveredSkill,
   type IngestResult,
   type SyncReport,
+  parsePolicy,
+  evaluatePolicy,
+  formatPolicyEvaluation,
+  type PolicyDefinition,
+  type PolicyEvaluationResult,
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
@@ -503,6 +508,7 @@ export interface PublishOptions {
   allowRisky?: boolean;
   sign?: boolean;
   key?: string;
+  policy?: string;
   yes?: boolean;
 }
 
@@ -530,6 +536,46 @@ export async function publishCommand(
     throw new Error(
       `publish blocked by security scan (high severity findings); pass --allow-risky to proceed anyway`,
     );
+  }
+
+  // 1.5 Enterprise Policy Verification
+  const policyFile =
+    options.policy ??
+    (fs.existsSync(path.join(pack.dir, "policy.json"))
+      ? path.join(pack.dir, "policy.json")
+      : fs.existsSync(path.join(process.cwd(), "policy.json"))
+      ? path.join(process.cwd(), "policy.json")
+      : undefined);
+
+  if (policyFile) {
+    console.log(`\n  [Policy Check]: Validating enterprise compliance...`);
+    try {
+      const policyContent = JSON.parse(await fsp.readFile(policyFile, "utf8"));
+      const policy = parsePolicy(policyContent);
+      const evalResult = evaluatePolicy(policy, {
+        manifest: pack.manifest,
+        scan: report,
+      });
+
+      if (evalResult.passed) {
+        console.log(`    ✓ Policy "${evalResult.policyName}" passed (${evalResult.totalRules} rules)`);
+      } else {
+        console.log(`    ✗ Policy check failed with ${evalResult.violations.length} violation(s):`);
+        for (const v of evalResult.violations) {
+          console.log(`      - [${v.ruleId}] ${v.message}`);
+        }
+        if (!options.allowRisky) {
+          throw new Error(
+            `publish blocked by enterprise policy "${evalResult.policyName}"; review violations or pass --allow-risky`,
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("publish blocked by enterprise policy")) {
+        throw err;
+      }
+      throw new Error(`Failed to evaluate policy file (${policyFile}): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // 2. Tarball packaging & local verification
@@ -1334,5 +1380,45 @@ export async function syncCommand(options: SyncCliOptions): Promise<void> {
       }
     }
     console.log(`Repair complete: ${repairedCount}/${needsRepair.length} restored.`);
+  }
+}
+
+export interface PolicyCheckOptions {
+  policy?: string;
+  json?: boolean;
+}
+
+export async function policyCheckCommand(
+  dir = ".",
+  options: PolicyCheckOptions = {},
+): Promise<void> {
+  const pack = await readPack(dir);
+  const report = await scanPack(pack.dir);
+  const policyFile =
+    options.policy ??
+    (fs.existsSync(path.join(pack.dir, "policy.json"))
+      ? path.join(pack.dir, "policy.json")
+      : path.join(process.cwd(), "policy.json"));
+
+  if (!fs.existsSync(policyFile)) {
+    throw new Error(`Policy file not found: ${policyFile}. Pass --policy <file>`);
+  }
+
+  const policyContent = JSON.parse(await fsp.readFile(policyFile, "utf8"));
+  const policy = parsePolicy(policyContent);
+  const evalResult = evaluatePolicy(policy, {
+    manifest: pack.manifest,
+    scan: report,
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(evalResult, null, 2));
+    if (!evalResult.passed) process.exitCode = 1;
+    return;
+  }
+
+  console.log(formatPolicyEvaluation(evalResult));
+  if (!evalResult.passed) {
+    process.exitCode = 1;
   }
 }

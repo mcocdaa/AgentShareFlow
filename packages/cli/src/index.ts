@@ -22,6 +22,7 @@ import {
   whoamiCommand,
   ingestCommand,
   syncCommand,
+  policyCheckCommand,
 } from "./commands.js";
 import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
@@ -80,6 +81,7 @@ program
   .option("--allow-risky", "publish even when the security scan reports high-severity findings")
   .option("--sign", "sign the release with an ed25519 key")
   .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
+  .option("--policy <file>", "enterprise policy compliance file (default: ./policy.json)")
   .option("-y, --yes", "skip interactive confirmation prompt")
   .action(publishCommand);
 
@@ -93,6 +95,7 @@ program
   .option("--allow-risky", "publish even when the security scan reports high-severity findings")
   .option("--sign", "sign the release with an ed25519 key")
   .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
+  .option("--policy <file>", "enterprise policy compliance file (default: ./policy.json)")
   .option("-y, --yes", "skip interactive confirmation prompt")
   .action(publishCommand);
 
@@ -284,6 +287,16 @@ program
       install: (ref, installOptions) => installPack(client, registry, ref, installOptions),
     });
   });
+
+const policy = program.command("policy").description("validate agent packs against enterprise compliance policies");
+
+policy
+  .command("check")
+  .description("evaluate an Agent Pack against a declarative policy.json")
+  .argument("[dir]", "pack directory", ".")
+  .option("--policy <file>", "path to policy.json file")
+  .option("--json", "machine-readable output")
+  .action(policyCheckCommand);
 
 try {
   await program.parseAsync(process.argv);
