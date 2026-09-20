@@ -16,6 +16,15 @@ export interface OrganizationMemberRow {
   created_at: string;
 }
 
+export interface FederationPeerRow {
+  id: string;
+  name: string;
+  url: string;
+  status: "active" | "unreachable" | "pending";
+  created_at: string;
+  last_synced_at: string | null;
+}
+
 export interface PackRow {
   owner: string;
   name: string;
@@ -209,6 +218,16 @@ export class RegistryDb {
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS org_members_identity ON organization_members (member_identity)",
     );
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS federation_peers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        last_synced_at TEXT
+      )
+    `);
     this.migratePackColumns();
     this.migrateShareColumns();
   }
@@ -661,4 +680,59 @@ export class RegistryDb {
     const role = this.getOrgMemberRole(packOwner, callerIdentity);
     return role === "owner" || role === "admin" || role === "member";
   }
+
+  listPeers(): FederationPeerRow[] {
+    return this.db
+      .prepare("SELECT * FROM federation_peers ORDER BY created_at ASC")
+      .all() as unknown as FederationPeerRow[];
+  }
+
+  addPeer(peer: {
+    id?: string;
+    name: string;
+    url: string;
+    status?: "active" | "unreachable" | "pending";
+  }): FederationPeerRow {
+    const id = peer.id ?? `peer_${Math.random().toString(36).slice(2, 10)}`;
+    const status = peer.status ?? "active";
+    const now = new Date().toISOString();
+    const cleanUrl = peer.url.replace(/\/+$/, "");
+
+    this.db
+      .prepare(`
+        INSERT INTO federation_peers (id, name, url, status, created_at, last_synced_at)
+        VALUES (?, ?, ?, ?, ?, NULL)
+        ON CONFLICT(url) DO UPDATE SET
+          name = excluded.name,
+          status = excluded.status
+      `)
+      .run(id, peer.name, cleanUrl, status, now);
+
+    return this.db
+      .prepare("SELECT * FROM federation_peers WHERE url = ?")
+      .get(cleanUrl) as unknown as FederationPeerRow;
+  }
+
+  getPeer(idOrUrl: string): FederationPeerRow | null {
+    const clean = idOrUrl.replace(/\/+$/, "");
+    const row = this.db
+      .prepare("SELECT * FROM federation_peers WHERE id = ? OR url = ?")
+      .get(idOrUrl, clean);
+    return (row as unknown as FederationPeerRow) ?? null;
+  }
+
+  removePeer(idOrUrl: string): boolean {
+    const clean = idOrUrl.replace(/\/+$/, "");
+    const res = this.db
+      .prepare("DELETE FROM federation_peers WHERE id = ? OR url = ?")
+      .run(idOrUrl, clean);
+    return (res.changes ?? 0) > 0;
+  }
+
+  updatePeerStatus(id: string, status: "active" | "unreachable", lastSyncedAt?: string): void {
+    this.db
+      .prepare("UPDATE federation_peers SET status = ?, last_synced_at = ? WHERE id = ?")
+      .run(status, lastSyncedAt ?? new Date().toISOString(), id);
+  }
 }
+

@@ -186,4 +186,54 @@ export class RegistryClient {
     );
     return this.toJson(res);
   }
+
+  async listPeers(): Promise<{
+    peers: Array<{
+      id: string;
+      name: string;
+      url: string;
+      status: string;
+      created_at: string;
+      last_synced_at: string | null;
+    }>;
+  }> {
+    const res = await fetch(this.resolve("api/v1/federation/peers"), { headers: this.headers() });
+    return this.toJson(res);
+  }
+
+  async addPeer(
+    url: string,
+    name?: string,
+  ): Promise<{ ok: boolean; peer: { id: string; name: string; url: string; status: string } }> {
+    const res = await fetch(this.resolve("api/v1/federation/peers"), {
+      method: "POST",
+      headers: this.headers({ "content-type": "application/json" }),
+      body: JSON.stringify({ url, name }),
+    });
+    return this.toJson(res);
+  }
+
+  async removePeer(id: string): Promise<{ ok: boolean; removed: boolean }> {
+    const res = await fetch(this.resolve(`api/v1/federation/peers/${encodeURIComponent(id)}`), {
+      method: "DELETE",
+      headers: this.headers(),
+    });
+    return this.toJson(res);
+  }
+
+  async federatedSearch(query: string, mode?: string): Promise<{
+    query: string;
+    total: number;
+    localCount: number;
+    federatedCount: number;
+    items: Array<PackSummary & { origin: "local" | "federated"; peer?: { id: string; name: string; url: string } }>;
+  }> {
+    const params = new URLSearchParams({ q: query });
+    if (mode) params.set("mode", mode);
+    const res = await fetch(this.resolve(`api/v1/federation/search?${params.toString()}`), {
+      headers: this.headers(),
+    });
+    return this.toJson(res);
+  }
 }
+

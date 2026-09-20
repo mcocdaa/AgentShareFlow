@@ -10,6 +10,7 @@ import { orgRoutes } from "./org-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
 import { type IStorageDriver, LocalStorageDriver, createStorageDriverFromEnv } from "./storage.js";
+import { federationRoutes } from "./federation-routes.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -74,6 +75,14 @@ export function createApp({
       hub,
       ...publicUrl === undefined ? {} : { publicUrl },
       ...a2aReplyTimeoutMs === undefined ? {} : { a2aReplyTimeoutMs },
+      ...oidc === undefined ? {} : { oidc },
+    }),
+  );
+  app.route(
+    "/",
+    federationRoutes({
+      db,
+      ...publicUrl === undefined ? {} : { publicUrl },
       ...oidc === undefined ? {} : { oidc },
     }),
   );

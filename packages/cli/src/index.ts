@@ -29,6 +29,9 @@ import {
   orgAddMemberCommand,
   orgRemoveMemberCommand,
   runCommand,
+  federationListCommand,
+  federationAddCommand,
+  federationRemoveCommand,
 } from "./commands.js";
 import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
@@ -120,6 +123,7 @@ program
   .description("search packs on the registry")
   .argument("<query>", "search query")
   .option("--registry <url>", "registry base URL")
+  .option("--federated", "search across local registry and all connected federation peers")
   .option("--json", "machine-readable output")
   .action(searchCommand);
 
@@ -370,6 +374,37 @@ program
   .option("--token <token>", "API token (for remote packs)")
   .option("--json", "output execution result as JSON")
   .action(runCommand);
+
+const federation = program
+  .command("federation")
+  .description("manage cross-registry A2A federation peers");
+
+federation
+  .command("list")
+  .description("list all connected federation peers")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(federationListCommand);
+
+federation
+  .command("add")
+  .description("register a new federation peer registry")
+  .argument("<url>", "peer registry base URL")
+  .option("--name <name>", "optional human-readable peer name")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(federationAddCommand);
+
+federation
+  .command("remove")
+  .description("deregister a federation peer registry")
+  .argument("<peerId>", "peer ID or URL")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(federationRemoveCommand);
 
 try {
   await program.parseAsync(process.argv);

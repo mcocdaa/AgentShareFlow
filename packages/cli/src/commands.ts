@@ -900,10 +900,30 @@ export async function diffCommand(
 
 export async function searchCommand(
   query: string,
-  options: { registry?: string; json?: boolean },
+  options: { registry?: string; json?: boolean; federated?: boolean },
 ): Promise<void> {
   const config = loadConfig();
   const client = new RegistryClient(resolveRegistry(config, options.registry), resolveToken(config));
+
+  if (options.federated) {
+    const result = await client.federatedSearch(query);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (result.items.length === 0) {
+      console.log(`no federated packs found for "${query}"`);
+      return;
+    }
+    console.log(`\n🌐 Federated Search Results (${result.total} total: ${result.localCount} local, ${result.federatedCount} federated):`);
+    for (const item of result.items) {
+      const originBadge = item.origin === "local" ? "[LOCAL]" : `[FEDERATED: ${item.peer?.name ?? "peer"}]`;
+      console.log(`${originBadge} ${item.owner}/${item.name}@${item.version}  [${item.mode}]  ★ ${item.stars}  ↓ ${item.downloads}`);
+      console.log(`  ${item.title} — ${truncate(item.description, 100)}`);
+    }
+    return;
+  }
+
   const { items } = await client.search(query);
   if (options.json) {
     console.log(JSON.stringify(items, null, 2));
@@ -918,6 +938,7 @@ export async function searchCommand(
     console.log(`  ${item.title} — ${truncate(item.description, 100)}`);
   }
 }
+
 
 export async function infoCommand(
   ref: string,
@@ -1630,3 +1651,64 @@ export async function runCommand(
     }
   }
 }
+
+export async function federationListCommand(
+  options: { registry?: string; token?: string; json?: boolean } = {},
+): Promise<void> {
+  const config = loadConfig();
+  const client = new RegistryClient(
+    resolveRegistry(config, options.registry),
+    resolveToken(config, options.token),
+  );
+  const { peers } = await client.listPeers();
+  if (options.json) {
+    console.log(JSON.stringify(peers, null, 2));
+    return;
+  }
+  if (peers.length === 0) {
+    console.log("No federation peers registered. Use 'agentshare federation add <url>' to connect to other registries.");
+    return;
+  }
+  console.log(`\n🌐 Connected Federation Peers (${peers.length}):`);
+  console.log("────────────────────────────────────────────────────────────");
+  for (const p of peers) {
+    const statusIcon = p.status === "active" ? "🟢" : "🔴";
+    console.log(`${statusIcon} ${p.name} (${p.url}) [${p.status}]`);
+    console.log(`   ID: ${p.id} | Synced: ${p.last_synced_at ?? "never"}`);
+  }
+}
+
+export async function federationAddCommand(
+  url: string,
+  options: { name?: string; registry?: string; token?: string; json?: boolean } = {},
+): Promise<void> {
+  const config = loadConfig();
+  const client = new RegistryClient(
+    resolveRegistry(config, options.registry),
+    resolveToken(config, options.token),
+  );
+  const result = await client.addPeer(url, options.name);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`✓ Added federation peer ${result.peer.name} (${result.peer.url}) [${result.peer.status}]`);
+}
+
+export async function federationRemoveCommand(
+  peerId: string,
+  options: { registry?: string; token?: string; json?: boolean } = {},
+): Promise<void> {
+  const config = loadConfig();
+  const client = new RegistryClient(
+    resolveRegistry(config, options.registry),
+    resolveToken(config, options.token),
+  );
+  const result = await client.removePeer(peerId);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`✓ Deregistered federation peer: ${peerId}`);
+}
+
