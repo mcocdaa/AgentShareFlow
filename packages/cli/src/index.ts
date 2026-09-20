@@ -20,6 +20,8 @@ import {
   initCommand,
   searchCommand,
   whoamiCommand,
+  ingestCommand,
+  syncCommand,
 } from "./commands.js";
 import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
@@ -154,6 +156,32 @@ program
   .option("--force", "write into a non-empty destination")
   .option("--json", "machine-readable output")
   .action(importCommand);
+
+program
+  .command("ingest")
+  .description("extract an existing skill from a harness into a standard Agent Pack")
+  .argument("[skillName]", "name of the skill to ingest")
+  .requiredOption("--from <harness>", "source harness (agents, claude, codex, opencode, openclaw, hermes)")
+  .option("--name <name>", "custom name for the generated pack")
+  .option("--out <dir>", "destination directory")
+  .option("--project", "inspect project-level harness directory instead of user directory")
+  .option("--targets <targets>", "comma-separated compatibility targets (default: source harness + agents)")
+  .option("--list", "list discovered skills in the target harness directory")
+  .option("--force", "overwrite destination directory if non-empty")
+  .option("--json", "machine-readable output")
+  .action(ingestCommand);
+
+program
+  .command("sync")
+  .description("check and repair synchronization between lockfile and installed harness skills")
+  .option("--target <harness>", "filter by harness target")
+  .option("--project", "sync project lockfile instead of user lockfile")
+  .option("--repair", "attempt to repair missing or drifted skills")
+  .option("--no-orphans", "skip scanning for unmanaged orphaned skills")
+  .option("--registry <url>", "registry base URL (for repair)")
+  .option("--token <token>", "API token (for repair)")
+  .option("--json", "machine-readable output")
+  .action(syncCommand);
 
 const share = program.command("share").description("review outcomes submitted through a share link");
 

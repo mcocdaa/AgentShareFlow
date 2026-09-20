@@ -38,6 +38,13 @@ import {
   writeLockfile,
   type LockEntry,
   type ScanReport,
+  discoverHarnessSkills,
+  ingestSkillFromHarness,
+  checkSyncStatus,
+  formatSyncReport,
+  type DiscoveredSkill,
+  type IngestResult,
+  type SyncReport,
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
@@ -1168,5 +1175,164 @@ export async function exportCommand(ref: string, options: ExportOptions): Promis
     if (result.exported.length === 0) console.log("nothing exported");
   } finally {
     await fsp.rm(tmp, { recursive: true, force: true });
+  }
+}
+
+export interface IngestCliOptions {
+  from: string;
+  name?: string;
+  out?: string;
+  project?: boolean;
+  targets?: string;
+  force?: boolean;
+  list?: boolean;
+  cwd?: string;
+  json?: boolean;
+}
+
+export async function ingestCommand(
+  skillName: string | undefined,
+  options: IngestCliOptions,
+): Promise<void> {
+  const fromHarness = (options.from ?? "").trim().toLowerCase();
+  if (!fromHarness) {
+    throw new Error("--from <harness> is required (agents, claude, codex, opencode, openclaw, hermes)");
+  }
+  if (!HARNESSES.includes(fromHarness as Harness)) {
+    throw new Error(`unknown harness "${fromHarness}"; expected one of: ${HARNESSES.join(", ")}`);
+  }
+  const harness = fromHarness as Harness;
+
+  if (options.list || !skillName) {
+    const skills = await discoverHarnessSkills(harness, {
+      project: options.project,
+      cwd: options.cwd,
+    });
+    if (options.json) {
+      console.log(JSON.stringify(skills, null, 2));
+      return;
+    }
+    console.log(`Discovered skills in ${harness} (${options.project ? "project" : "user"} scope):`);
+    if (skills.length === 0) {
+      console.log("  (no skills found)");
+      return;
+    }
+    for (const item of skills) {
+      const badges: string[] = [];
+      if (item.hasSkillMd) badges.push("SKILL.md");
+      if (item.hasMcp) badges.push("mcp.json");
+      console.log(`  • ${item.name.padEnd(24)} [${badges.join(", ") || "scripts"}] (${item.files.length} files)`);
+    }
+    console.log(`\nTo ingest: agentshare ingest --from ${harness} <skill-name>`);
+    return;
+  }
+
+  const targetHarnesses = options.targets
+    ? resolveTargets(options.targets)
+    : [harness, "agents" as Harness];
+
+  const result = await ingestSkillFromHarness(harness, skillName, {
+    name: options.name,
+    out: options.out,
+    project: options.project,
+    force: options.force,
+    cwd: options.cwd,
+    targetHarnesses,
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log("┌────────────────────────────────────────────────────────────┐");
+  console.log(`│ Ingested:    ${result.manifest.name}@${result.manifest.version} (from ${harness})`.padEnd(61) + "│");
+  console.log(`│ Title:       ${truncate(result.manifest.title, 42)}`.padEnd(61) + "│");
+  console.log(`│ Targets:     ${result.manifest.compatibility.join(", ")}`.padEnd(61) + "│");
+  console.log(`│ Output:      ${result.outDir}`.padEnd(61) + "│");
+  console.log(`│ Files:       ${result.files.join(", ")}`.padEnd(61) + "│");
+  if (result.manifest.secrets.length > 0) {
+    console.log(`│ Secrets:     ${result.manifest.secrets.join(", ")}`.padEnd(61) + "│");
+  }
+  console.log("└────────────────────────────────────────────────────────────┘");
+  const rel = path.relative(process.cwd(), result.outDir);
+  const nextTarget = rel.startsWith("..") || path.isAbsolute(rel) ? result.outDir : rel;
+  console.log(`✨ Pack scaffolded! To inspect or publish:\n   agentshare publish ${nextTarget}`);
+}
+
+export interface SyncCliOptions {
+  target?: string;
+  project?: boolean;
+  dryRun?: boolean;
+  repair?: boolean;
+  checkOrphans?: boolean;
+  registry?: string;
+  token?: string;
+  cwd?: string;
+  json?: boolean;
+}
+
+export async function syncCommand(options: SyncCliOptions): Promise<void> {
+  const workingDir = options.cwd ?? process.cwd();
+  const lockfilePath = options.project
+    ? path.join(workingDir, LOCKFILE_FILENAME)
+    : fs.existsSync(path.join(workingDir, LOCKFILE_FILENAME))
+    ? path.join(workingDir, LOCKFILE_FILENAME)
+    : path.join(path.dirname(configPath()), LOCKFILE_FILENAME);
+
+  if (!fs.existsSync(lockfilePath)) {
+    if (options.json) {
+      console.log(JSON.stringify({ status: "empty", message: "no lockfile found" }, null, 2));
+      return;
+    }
+    console.log(`No lockfile found at ${lockfilePath}`);
+    console.log("Install packs first using `agentshare install <pack>` to create a lockfile.");
+    return;
+  }
+
+  const lock = await readLockfile(lockfilePath);
+  const targetHarness = options.target && HARNESSES.includes(options.target as Harness)
+    ? (options.target as Harness)
+    : undefined;
+
+  const report = await checkSyncStatus(lock, {
+    lockfilePath,
+    targetHarness,
+    scope: options.project ? "project" : undefined,
+    checkOrphans: options.checkOrphans ?? true,
+    cwd: workingDir,
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  console.log(formatSyncReport(report));
+
+  if (options.repair && (report.missing > 0 || report.drifted > 0)) {
+    console.log("\nAttempting automatic re-installation/repair for missing and drifted packs...");
+    const config = loadConfig();
+    const registry = resolveRegistry(config, options.registry);
+    const client = new RegistryClient(registry, resolveToken(config, options.token));
+
+    const needsRepair = report.entries.filter((e) => e.status === "missing" || e.status === "drifted");
+    let repairedCount = 0;
+
+    for (const item of needsRepair) {
+      try {
+        console.log(`Repairing ${item.owner}/${item.name}@${item.version} -> ${item.dest}...`);
+        await installPack(client, registry, `${item.owner}/${item.name}@${item.version}`, {
+          target: item.target,
+          project: item.scope === "project",
+          dir: path.dirname(item.dest),
+          force: true,
+        });
+        repairedCount++;
+      } catch (err) {
+        console.log(`  ✗ Failed to repair ${item.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    console.log(`Repair complete: ${repairedCount}/${needsRepair.length} restored.`);
   }
 }
