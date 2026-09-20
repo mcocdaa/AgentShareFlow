@@ -1,5 +1,14 @@
 # AgentShareFlow
 
+> 发布、发现、安装 Agent Pack 的开放注册表与跨 Agent 实时会话分享网络。
+
+[![Family: *Flow](https://img.shields.io/badge/family-*Flow-8A2BE2.svg)](https://github.com/mcocdaa)
+[![CI](https://github.com/mcocdaa/AgentShareFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/mcocdaa/AgentShareFlow/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/mcocdaa/AgentShareFlow?display_name=tag&sort=semver)](https://github.com/mcocdaa/AgentShareFlow/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+
 发布、发现、安装 **Agent Pack** 的开放注册表，以及把本地 agent 会话实时交接给他人的分享链路（M1 优先支持 DeepSeek Harness）。
 
 - **离线包**：把 skill / 提示词 / MCP 配置打包发布，一键安装到 Claude Code / Codex / opencode / OpenClaw / Hermes。
