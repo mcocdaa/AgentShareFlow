@@ -6,19 +6,31 @@ import { cors } from "hono/cors";
 import { RegistryDb } from "./db.js";
 import { createOidcRoutes, oidcConfigFromEnv, oidcMiddleware } from "./oidc.js";
 import { createPackRoutes } from "./pack-routes.js";
+import { orgRoutes } from "./org-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
+import { type IStorageDriver, LocalStorageDriver, createStorageDriverFromEnv } from "./storage.js";
+import { federationRoutes } from "./federation-routes.js";
 
 export interface AppOptions {
   dataDir: string;
   publicUrl?: string;
   webDir?: string;
   a2aReplyTimeoutMs?: number;
+  storage?: IStorageDriver;
 }
 
-export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: AppOptions): Hono {
+export function createApp({
+  dataDir,
+  publicUrl,
+  webDir,
+  a2aReplyTimeoutMs,
+  storage,
+}: AppOptions): Hono {
+  fs.mkdirSync(dataDir, { recursive: true });
   const packsDir = path.join(dataDir, "packs");
   fs.mkdirSync(packsDir, { recursive: true });
+  const driver = storage ?? createStorageDriverFromEnv(packsDir);
   const db = new RegistryDb(path.join(dataDir, "registry.db"));
   const hub = new ShareHub();
 
@@ -45,8 +57,17 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
   app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
 
   if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc));
+  app.route("/api/v1", orgRoutes(db, oidc));
 
-  app.route("/api/v1", createPackRoutes({ db, packsDir, ...oidc === undefined ? {} : { oidc } }));
+  app.route(
+    "/api/v1",
+    createPackRoutes({
+      db,
+      packsDir,
+      storage: driver,
+      ...oidc === undefined ? {} : { oidc },
+    }),
+  );
   app.route(
     "/api/v1",
     createShareRoutes({
@@ -54,6 +75,14 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
       hub,
       ...publicUrl === undefined ? {} : { publicUrl },
       ...a2aReplyTimeoutMs === undefined ? {} : { a2aReplyTimeoutMs },
+      ...oidc === undefined ? {} : { oidc },
+    }),
+  );
+  app.route(
+    "/",
+    federationRoutes({
+      db,
+      ...publicUrl === undefined ? {} : { publicUrl },
       ...oidc === undefined ? {} : { oidc },
     }),
   );

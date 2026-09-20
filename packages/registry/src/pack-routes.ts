@@ -12,13 +12,18 @@ import {
   formatScanFinding,
   keyFingerprint,
   parseManifest,
+  readPackReadme,
   scanPack,
   verifyDigest,
+  parsePolicy,
+  evaluatePolicy,
+  executeInSandbox,
 } from "@agentshare/core";
 import { Hono } from "hono";
 import { type PackRow, type RegistryDb } from "./db.js";
 import { resolveOwner } from "./identity.js";
 import type { OidcConfig } from "./oidc.js";
+import { type IStorageDriver, LocalStorageDriver } from "./storage.js";
 
 function pick(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -35,16 +40,26 @@ function toSummary(row: PackRow, stars: number) {
     tags: JSON.parse(row.tags) as string[],
     downloads: row.downloads,
     stars,
+    visibility: row.visibility,
     createdAt: row.created_at,
   };
 }
 
-function toDetail(row: PackRow, versions: string[], stars: number, starred?: boolean) {
+function toDetail(
+  row: PackRow,
+  versions: string[],
+  stars: number,
+  readme: string | null = null,
+  starred?: boolean,
+) {
   return {
     ...toSummary(row, stars),
     digest: row.digest,
     size: row.size,
+    visibility: row.visibility,
     downloadUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/download`,
+    readmeUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/readme`,
+    readme,
     manifest: JSON.parse(row.manifest) as AgentManifest,
     versions,
     ...starred === undefined ? {} : { starred },
@@ -64,31 +79,41 @@ function toDetail(row: PackRow, versions: string[], stars: number, starred?: boo
 export interface PackRouteDeps {
   db: RegistryDb;
   packsDir: string;
+  storage?: IStorageDriver;
   oidc?: OidcConfig;
 }
 
-export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
+export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps): Hono {
   const app = new Hono();
+  const driver: IStorageDriver = storage ?? new LocalStorageDriver(packsDir);
 
-  app.get("/search", (c) => {
+  app.get("/search", async (c) => {
     const query = (c.req.query("q") ?? "").trim();
     const mode = c.req.query("mode");
+    const who = await resolveOwner(c, oidc);
+    const rows = db.search(query, mode).filter((row) => db.canUserReadPack(who, row.owner, row.visibility));
     return c.json({
-      items: db.search(query, mode).map((row) => toSummary(row, db.countStars(row.owner, row.name))),
+      items: rows.map((row) => toSummary(row, db.countStars(row.owner, row.name))),
     });
   });
 
   app.get("/agents/:owner/:name", async (c) => {
     const { owner, name } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const versions = db.versions(owner, name);
     const latest = versions.at(-1);
     if (!latest) return c.json({ error: "not found" }, 404);
-    const who = await resolveOwner(c, oidc);
+    if (!db.canUserReadPack(who, latest.owner, latest.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const bytes = await driver.get(latest.file);
+    const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
       toDetail(
         latest,
         versions.map((row) => row.version),
         db.countStars(owner, name),
+        readme,
         who === undefined ? undefined : db.hasStar(who, owner, name),
       ),
     );
@@ -96,30 +121,94 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
 
   app.get("/agents/:owner/:name/:version", async (c) => {
     const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
-    const who = await resolveOwner(c, oidc);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const bytes = await driver.get(row.file);
+    const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
       toDetail(
         row,
         db.versions(owner, name).map((entry) => entry.version),
         db.countStars(owner, name),
+        readme,
         who === undefined ? undefined : db.hasStar(who, owner, name),
       ),
     );
   });
 
-  app.get("/agents/:owner/:name/:version/download", (c) => {
+  app.get("/agents/:owner/:name/:version/readme", async (c) => {
     const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const bytes = await driver.get(row.file);
+    if (!bytes) return c.json({ error: "file not found" }, 404);
+    const readme = readPackReadme(bytes);
+    return c.json({ readme });
+  });
+
+  app.get("/agents/:owner/:name/:version/download", async (c) => {
+    const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
+    const row = db.get(owner, name, version);
+    if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
     db.bumpDownloads(owner, name, version);
-    return new Response(fs.readFileSync(row.file), {
+    const data = await driver.get(row.file);
+    if (!data) return c.json({ error: "file not found" }, 404);
+    return new Response(Buffer.from(data), {
       headers: {
         "content-type": "application/gzip",
         "content-disposition": `attachment; filename="${name}-${version}.tgz"`,
       },
     });
+  });
+
+  app.post("/agents/:owner/:name/:version/playground", async (c) => {
+    const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
+    const row = db.get(owner, name, version);
+    if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const data = await driver.get(row.file);
+    if (!data) return c.json({ error: "file not found" }, 404);
+
+    let body: { input?: unknown; entry?: string; timeoutMs?: number } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      // Optional JSON body
+    }
+
+    const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-playground-"));
+    try {
+      const tarballPath = path.join(tmpDir, "pack.tgz");
+      await fsp.writeFile(tarballPath, Buffer.from(data));
+      const extractedDir = path.join(tmpDir, "pack");
+      await extractPackTarball(tarballPath, extractedDir);
+
+      const result = await executeInSandbox({
+        packDir: extractedDir,
+        input: body.input,
+        entryScript: body.entry,
+        timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 5000,
+      });
+
+      return c.json(result);
+    } finally {
+      await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   app.post("/agents/:owner/:name/star", async (c) => {
@@ -141,10 +230,16 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
   });
 
   app.post("/agents", async (c) => {
-    const owner = await resolveOwner(c, oidc);
-    if (!owner) return c.json({ error: "unauthorized" }, 401);
-    if (!OWNER_PATTERN.test(owner)) {
+    const callerOwner = await resolveOwner(c, oidc);
+    if (!callerOwner) return c.json({ error: "unauthorized" }, 401);
+
+    const targetOwner = (c.req.header("x-pack-owner") ?? callerOwner).toLowerCase();
+    if (!OWNER_PATTERN.test(targetOwner)) {
       return c.json({ error: "invalid owner namespace" }, 400);
+    }
+
+    if (!db.canUserWritePack(callerOwner, targetOwner)) {
+      return c.json({ error: `forbidden: you do not have permission to publish to ${targetOwner}` }, 403);
     }
 
     const body = await c.req.parseBody();
@@ -193,10 +288,10 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
       }
     }
 
-    if (db.get(owner, manifest.name, manifest.version)) {
+    if (db.get(targetOwner, manifest.name, manifest.version)) {
       return c.json(
         {
-          error: `${owner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
+          error: `${targetOwner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
         },
         409,
       );
@@ -228,17 +323,49 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
           400,
         );
       }
+
+      if (process.env.AGENTS_POLICY_FILE && fs.existsSync(process.env.AGENTS_POLICY_FILE)) {
+        try {
+          const policyContent = JSON.parse(await fsp.readFile(process.env.AGENTS_POLICY_FILE, "utf8"));
+          const policy = parsePolicy(policyContent);
+          const evalResult = evaluatePolicy(policy, {
+            manifest,
+            scan: report,
+            signer: publicKey ? { fingerprint: keyFingerprint(publicKey) } : undefined,
+          });
+          if (!evalResult.passed) {
+            return c.json(
+              {
+                error: `pack rejected by enterprise policy: ${evalResult.policyName}`,
+                details: evalResult.violations.map((v) => `[${v.ruleId}] ${v.message}`).join("; "),
+              },
+              400,
+            );
+          }
+        } catch (err) {
+          return c.json(
+            { error: "policy evaluation error", details: err instanceof Error ? err.message : String(err) },
+            500,
+          );
+        }
+      }
     } finally {
       await fsp.rm(scanTmp, { recursive: true, force: true });
     }
 
-    const dir = path.join(packsDir, owner, manifest.name);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${manifest.version}.tgz`);
-    fs.writeFileSync(file, bytes);
+    const visibilityHeader = c.req.header("x-pack-visibility");
+    const visibility =
+      visibilityHeader && ["public", "internal", "private"].includes(visibilityHeader)
+        ? visibilityHeader
+        : manifest.metadata?.visibility && ["public", "internal", "private"].includes(manifest.metadata.visibility)
+        ? manifest.metadata.visibility
+        : "public";
+
+    const relKey = path.join(targetOwner, manifest.name, `${manifest.version}.tgz`);
+    const file = await driver.put(relKey, bytes);
 
     db.insert({
-      owner: owner,
+      owner: targetOwner,
       name: manifest.name,
       version: manifest.version,
       title: manifest.title,
@@ -251,15 +378,17 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
       file,
       public_key: publicKey,
       signature: signature ?? null,
+      visibility,
       created_at: new Date().toISOString(),
     });
 
     return c.json(
       {
         ok: true,
-        ref: `${owner}/${manifest.name}@${manifest.version}`,
+        ref: `${targetOwner}/${manifest.name}@${manifest.version}`,
         digest,
         size: bytes.length,
+        visibility,
       },
       201,
     );

@@ -254,3 +254,43 @@ describe("pack stars", () => {
     expect(await other.json()).toMatchObject({ stars: 1, starred: false });
   });
 });
+
+describe("registry enterprise policy hook", () => {
+  it("rejects uploads that violate enterprise policy file", async () => {
+    const app = await makeApp("token");
+    const auth = { authorization: "Bearer tok" };
+
+    const policyDir = await temporaryDirectory("agentshare-policy-");
+    const policyFile = path.join(policyDir, "policy.json");
+    await fs.writeFile(
+      policyFile,
+      JSON.stringify({
+        name: "enforce-mit-license",
+        version: "1.0.0",
+        rules: [
+          {
+            id: "require-mit",
+            description: "Must declare MIT license",
+            level: "error",
+            condition: {
+              field: "manifest.license",
+              operator: "equals",
+              value: "MIT",
+            },
+          },
+        ],
+      }),
+    );
+
+    process.env.AGENTS_POLICY_FILE = policyFile;
+    try {
+      const nonCompliant = await buildPack("unapproved-pack", "1.0.0");
+      const res = await postPack(app, nonCompliant, auth);
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toContain("pack rejected by enterprise policy");
+    } finally {
+      delete process.env.AGENTS_POLICY_FILE;
+    }
+  });
+});

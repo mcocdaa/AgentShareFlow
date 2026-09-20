@@ -8,6 +8,7 @@ import {
   postShareMessage,
   postSubmission,
 } from "./api.js";
+import { MarkdownView } from "./MarkdownView.js";
 
 function upsertMessage(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
   const index = list.findIndex((message) => message.id === incoming.id);
@@ -56,12 +57,12 @@ const AUTH_TAG: Record<ShareHandoff["authorizations"][number]["status"], string>
 
 function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
   return (
-    <details className="handoff" open>
+    <details className="handoff">
       <summary>
-        Handoff · {handoff.title}
+        📋 Handoff Context · {handoff.title}
         {handoff.tasks.filter((task) => task.status !== "done").length > 0
-          ? ` · ${handoff.tasks.filter((task) => task.status !== "done").length} open`
-          : ""}
+          ? ` (${handoff.tasks.filter((task) => task.status !== "done").length} open tasks)`
+          : " (complete)"}
       </summary>
       <div className="handoff-body">
         <p>{handoff.goal}</p>
@@ -297,12 +298,32 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
       <div className="chat">
         {messages.map((message) => (
           <div key={message.id} className={`bubble ${message.role}`}>
-            {message.content}
+            <div className="bubble-author">
+              {message.role === "visitor"
+                ? (name || "Visitor")
+                : message.role === "agent"
+                  ? (meta.agent?.name ?? "Agent")
+                  : "System"}
+            </div>
+            {message.role === "system" ? (
+              <div className="bubble-system-text">{message.content}</div>
+            ) : (
+              <MarkdownView content={message.content} />
+            )}
           </div>
         ))}
-        {streamText && <div className="bubble agent streaming">{streamText}</div>}
+        {streamText && (
+          <div className="bubble agent streaming">
+            <div className="bubble-author">{meta.agent?.name ?? "Agent"}</div>
+            <MarkdownView content={streamText} />
+            <span className="typing-cursor" />
+          </div>
+        )}
         {messages.length === 0 && !streamText && (
-          <p className="muted">no messages yet — say hi</p>
+          <div className="chat-empty">
+            <span className="chat-empty-icon">💬</span>
+            <p>No messages yet — start a session to converse with this agent.</p>
+          </div>
         )}
         <div ref={bottomRef} />
       </div>

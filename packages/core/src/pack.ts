@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "fflate";
 import * as tar from "tar";
 import { type AgentManifest, formatIssues, parseManifest } from "./manifest.js";
 
@@ -90,3 +91,66 @@ export async function extractPackTarball(file: string, dest: string): Promise<vo
   await fsp.mkdir(dest, { recursive: true });
   await tar.extract({ file: path.resolve(file), cwd: path.resolve(dest) });
 }
+
+function readTarString(bytes: Uint8Array, start: number, length: number): string {
+  let end = start;
+  const limit = start + length;
+  while (end < limit && bytes[end] !== 0) end++;
+  return new TextDecoder().decode(bytes.subarray(start, end));
+}
+
+function readTarOctal(bytes: Uint8Array, start: number, length: number): number {
+  const text = readTarString(bytes, start, length).trim();
+  return text.length === 0 ? 0 : Number.parseInt(text, 8);
+}
+
+export function readTarEntry(tarBytes: Uint8Array, name: string): Uint8Array | undefined {
+  const normalizedTarget = name.replace(/^\.\//, "");
+  for (let offset = 0; offset + 512 <= tarBytes.length; ) {
+    const header = tarBytes.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const entryName = readTarString(header, 0, 100).replace(/^\.\//, "");
+    const size = readTarOctal(header, 124, 12);
+    const type = header[156] ?? 0;
+    const dataStart = offset + 512;
+    if ((type === 48 || type === 0) && entryName === normalizedTarget) {
+      return tarBytes.subarray(dataStart, dataStart + size);
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  return undefined;
+}
+
+export function readPackReadme(tarballBytes: Uint8Array): string | null {
+  let tarData: Uint8Array;
+  try {
+    tarData = gunzipSync(tarballBytes);
+  } catch {
+    tarData = tarballBytes;
+  }
+  const candidates = ["SKILL.md", "README.md", "skill.md", "readme.md"];
+  for (const candidate of candidates) {
+    const entry = readTarEntry(tarData, candidate);
+    if (entry !== undefined) {
+      return new TextDecoder().decode(entry);
+    }
+  }
+  for (let offset = 0; offset + 512 <= tarData.length; ) {
+    const header = tarData.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const entryName = readTarString(header, 0, 100).replace(/^\.\//, "");
+    const size = readTarOctal(header, 124, 12);
+    const type = header[156] ?? 0;
+    const dataStart = offset + 512;
+    if (
+      (type === 48 || type === 0) &&
+      (entryName.endsWith("/SKILL.md") || entryName.endsWith("/README.md"))
+    ) {
+      const entry = tarData.subarray(dataStart, dataStart + size);
+      return new TextDecoder().decode(entry);
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  return null;
+}
+

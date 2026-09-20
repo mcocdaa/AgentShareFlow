@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ShareClient,
   TunnelClient,
+  computeFullJitterDelay,
   createSseParser,
   isTunnelFrame,
   parseHandoff,
@@ -94,6 +95,24 @@ describe("TunnelClient", () => {
     await client.send({ type: "agent_done", shareId: "s1", sessionId: "v1", content: "done" });
     expect(sent[0]?.url).toBe("http://relay.test/api/v1/tunnel/s1/frames");
     expect(JSON.parse(sent[0]?.body ?? "{}")).toMatchObject({ type: "agent_done", shareId: "s1" });
+  });
+
+  it("calculates exponential delays with full jitter", () => {
+    // With randomFn returning 0, should always be 0
+    expect(computeFullJitterDelay(1, 1000, 30000, () => 0)).toBe(0);
+    // With randomFn returning 1 (max bound), should reach cap
+    expect(computeFullJitterDelay(0, 1000, 30000, () => 1)).toBe(1001);
+    expect(computeFullJitterDelay(1, 1000, 30000, () => 1)).toBe(2001);
+    expect(computeFullJitterDelay(2, 1000, 30000, () => 1)).toBe(4001);
+    // Exponential cap at 30,000
+    expect(computeFullJitterDelay(10, 1000, 30000, () => 1)).toBe(30001);
+
+    // Default random stays within [0, cap]
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const delay = computeFullJitterDelay(attempt, 500, 5000);
+      expect(delay).toBeGreaterThanOrEqual(0);
+      expect(delay).toBeLessThanOrEqual(5001);
+    }
   });
 });
 
