@@ -225,3 +225,34 @@ export async function fetchPackReadme(
   return payload.readme ?? null;
 }
 
+export interface PlaygroundResult {
+  ok: boolean;
+  output: unknown;
+  logs: string[];
+  executionTimeMs: number;
+  exitCode: number;
+  sandboxed: boolean;
+  error?: string;
+}
+
+export async function runPackPlayground(
+  owner: string,
+  name: string,
+  version: string,
+  input: unknown,
+): Promise<PlaygroundResult> {
+  const res = await fetch(
+    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/playground`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input }),
+    },
+  );
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `Playground execution failed (HTTP ${res.status})`);
+  }
+  return res.json() as Promise<PlaygroundResult>;
+}
+

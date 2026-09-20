@@ -17,6 +17,7 @@ import {
   verifyDigest,
   parsePolicy,
   evaluatePolicy,
+  executeInSandbox,
 } from "@agentshare/core";
 import { Hono } from "hono";
 import { type PackRow, type RegistryDb } from "./db.js";
@@ -170,6 +171,44 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
         "content-disposition": `attachment; filename="${name}-${version}.tgz"`,
       },
     });
+  });
+
+  app.post("/agents/:owner/:name/:version/playground", async (c) => {
+    const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
+    const row = db.get(owner, name, version);
+    if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const data = await driver.get(row.file);
+    if (!data) return c.json({ error: "file not found" }, 404);
+
+    let body: { input?: unknown; entry?: string; timeoutMs?: number } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      // Optional JSON body
+    }
+
+    const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-playground-"));
+    try {
+      const tarballPath = path.join(tmpDir, "pack.tgz");
+      await fsp.writeFile(tarballPath, Buffer.from(data));
+      const extractedDir = path.join(tmpDir, "pack");
+      await extractPackTarball(tarballPath, extractedDir);
+
+      const result = await executeInSandbox({
+        packDir: extractedDir,
+        input: body.input,
+        entryScript: body.entry,
+        timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 5000,
+      });
+
+      return c.json(result);
+    } finally {
+      await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   app.post("/agents/:owner/:name/star", async (c) => {

@@ -50,6 +50,7 @@ import {
   formatPolicyEvaluation,
   type PolicyDefinition,
   type PolicyEvaluationResult,
+  executeInSandbox,
 } from "@agentshare/core";
 import { RegistryClient } from "./client.js";
 import { configPath, loadConfig, maskToken, resolveRegistry, resolveToken, saveConfig } from "./config.js";
@@ -1517,4 +1518,115 @@ export async function orgRemoveMemberCommand(
     return;
   }
   console.log(`✓ Removed ${memberIdentity} from ${orgName}`);
+}
+
+export interface RunCommandOptions {
+  input?: string;
+  entry?: string;
+  timeout?: string;
+  registry?: string;
+  token?: string;
+  json?: boolean;
+}
+
+export async function runCommand(
+  packTarget: string,
+  options: RunCommandOptions = {},
+): Promise<void> {
+  const timeoutMs = options.timeout ? Number.parseInt(options.timeout, 10) : 5000;
+  let parsedInput: unknown = options.input;
+  if (typeof options.input === "string") {
+    try {
+      parsedInput = JSON.parse(options.input);
+    } catch {
+      // Keep as string
+    }
+  }
+
+  let runDir = "";
+  let cleanupDir: string | null = null;
+
+  if (fs.existsSync(packTarget)) {
+    const stat = fs.statSync(packTarget);
+    if (stat.isDirectory()) {
+      runDir = path.resolve(packTarget);
+    } else if (packTarget.endsWith(".tgz") || packTarget.endsWith(".tar.gz")) {
+      cleanupDir = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-run-"));
+      await extractPackTarball(packTarget, cleanupDir);
+      runDir = cleanupDir;
+    }
+  } else {
+    const match = packTarget.match(/^([a-z0-9-]+)\/([a-z0-9-]+)(?:@([0-9a-zA-Z.-]+))?$/i);
+    if (!match) {
+      throw new Error(`invalid pack target "${packTarget}". Must be a local path, tarball, or owner/name[@version]`);
+    }
+    const [, owner, name, versionSpec] = match;
+    const config = loadConfig();
+    const client = new RegistryClient(
+      resolveRegistry(config, options.registry),
+      resolveToken(config, options.token),
+    );
+
+    let version = versionSpec;
+    if (!version) {
+      const detail = await client.info(owner!, name!);
+      version = detail.version;
+    }
+
+    const tarball = await client.downloadBytes(owner!, name!, version);
+    cleanupDir = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-run-remote-"));
+    const tmpTar = path.join(cleanupDir, "pack.tgz");
+    await fsp.writeFile(tmpTar, Buffer.from(tarball));
+    const extractedDir = path.join(cleanupDir, "pack");
+    await extractPackTarball(tmpTar, extractedDir);
+    runDir = extractedDir;
+  }
+
+  try {
+    const result = await executeInSandbox({
+      packDir: runDir,
+      input: parsedInput,
+      entryScript: options.entry,
+      timeoutMs,
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (!result.ok) process.exitCode = result.exitCode || 1;
+      return;
+    }
+
+    console.log(`\n📦 Agent Pack Sandbox Execution`);
+    console.log(`────────────────────────────────────────────────────────────`);
+    console.log(`Status:         ${result.ok ? "✅ SUCCESS" : "❌ FAILED"}`);
+    console.log(`Execution Time: ${result.executionTimeMs}ms`);
+    console.log(`Exit Code:      ${result.exitCode}`);
+    console.log(`Sandboxed:      ${result.sandboxed ? "YES (Isolated Node/Subprocess)" : "NO"}`);
+    if (result.error) {
+      console.log(`Error:          ${result.error}`);
+    }
+    console.log(`────────────────────────────────────────────────────────────`);
+
+    if (result.logs.length > 0) {
+      console.log(`\n📋 Execution Logs:`);
+      for (const line of result.logs) {
+        console.log(`  ${line}`);
+      }
+    }
+
+    console.log(`\n📤 Output Result:`);
+    if (typeof result.output === "object" && result.output !== null) {
+      console.log(JSON.stringify(result.output, null, 2));
+    } else {
+      console.log(result.output ?? "(no output)");
+    }
+
+    if (!result.ok) {
+      process.exitCode = result.exitCode || 1;
+    }
+  } finally {
+    if (cleanupDir) {
+      await fsp.rm(cleanupDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
 }

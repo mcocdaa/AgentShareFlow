@@ -3,6 +3,7 @@ import { type PackDetail, fetchPackReadme, getPack, toggleStar } from "./api.js"
 import { InstallCommand, ModeBadge } from "./components.js";
 import { DependencyTopology } from "./DependencyTopology.js";
 import { MarkdownView } from "./MarkdownView.js";
+import { PlaygroundView } from "./PlaygroundView.js";
 
 export function PackDetailPage({ owner, name }: { owner: string; name: string }) {
   const [detail, setDetail] = useState<PackDetail | null>(null);
@@ -10,7 +11,7 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
   const [loadingReadme, setLoadingReadme] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [starring, setStarring] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<"skill" | "topology" | "metadata">("skill");
+  const [activeSubTab, setActiveSubTab] = useState<"skill" | "topology" | "playground" | "metadata">("skill");
 
   useEffect(() => {
     setDetail(null);
@@ -131,6 +132,14 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
         </button>
         <button
           type="button"
+          className={`subtab-btn ${activeSubTab === "playground" ? "active" : ""}`}
+          onClick={() => setActiveSubTab("playground")}
+        >
+          <span>⚡ Live Playground</span>
+          <span className="subtab-count">Sandbox</span>
+        </button>
+        <button
+          type="button"
           className={`subtab-btn ${activeSubTab === "metadata" ? "active" : ""}`}
           onClick={() => setActiveSubTab("metadata")}
         >
@@ -173,7 +182,12 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
         <DependencyTopology detail={detail} />
       )}
 
-      {/* Tab 3: Manifest & Security Details */}
+      {/* Tab 3: Live Interactive Playground */}
+      {activeSubTab === "playground" && (
+        <PlaygroundView detail={detail} />
+      )}
+
+      {/* Tab 4: Manifest & Security Details */}
       {activeSubTab === "metadata" && (
         <div className="metadata-grid">
           <div className="meta-card">

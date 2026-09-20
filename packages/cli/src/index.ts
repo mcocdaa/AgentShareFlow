@@ -28,6 +28,7 @@ import {
   orgMembersCommand,
   orgAddMemberCommand,
   orgRemoveMemberCommand,
+  runCommand,
 } from "./commands.js";
 import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
@@ -357,6 +358,18 @@ org
   .option("--token <token>", "API token")
   .option("--json", "machine-readable output")
   .action(orgRemoveMemberCommand);
+
+program
+  .command("run")
+  .description("execute an Agent Pack in an isolated runtime sandbox")
+  .argument("<pack>", "local directory, tarball (.tgz), or registry reference (owner/name[@version])")
+  .option("-i, --input <data>", "input query string or JSON payload to pass to the agent")
+  .option("-e, --entry <script>", "entry script override (e.g. index.js, run.sh)")
+  .option("-t, --timeout <ms>", "execution timeout in milliseconds", "5000")
+  .option("--registry <url>", "registry base URL (for remote packs)")
+  .option("--token <token>", "API token (for remote packs)")
+  .option("--json", "output execution result as JSON")
+  .action(runCommand);
 
 try {
   await program.parseAsync(process.argv);
