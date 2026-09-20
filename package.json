@@ -16,6 +16,7 @@
     "cli": "pnpm --filter @agentshare/cli dev --",
     "dsh:sync": "bash scripts/sync-dsh-plugin.sh",
     "mock:share": "node scripts/mock-share-agent.mjs",
-    "mock:a2a": "node scripts/mock-a2a-agent.mjs"
+    "mock:a2a": "node scripts/mock-a2a-agent.mjs",
+    "verify:release": "bash scripts/verify-release.sh"
   }
 }
