@@ -158,7 +158,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
   );
 }
 
-export function SharePage({ id }: { id: string }) {
+export function SharePage({ id, compact = false }: { id: string; compact?: boolean }) {
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [status, setStatus] = useState<ShareMeta["status"]>("offline");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -270,10 +270,12 @@ export function SharePage({ id }: { id: string }) {
   const disabled = status !== "online" || sending;
 
   return (
-    <div className="share">
-      <a className="back" href="#/">
-        ← back
-      </a>
+    <div className={`share${compact ? " compact" : ""}`}>
+      {!compact && (
+        <a className="back" href="#/">
+          ← back
+        </a>
+      )}
       <div className="card-head">
         <span className="ref">
           {meta.owner} · {meta.title}

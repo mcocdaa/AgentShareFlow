@@ -19,6 +19,7 @@ import {
   searchCommand,
   whoamiCommand,
 } from "./commands.js";
+import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
 import { loadConfig, resolveRegistry, resolveToken } from "./config.js";
 import { serveMcpCommand } from "./mcp.js";
@@ -182,6 +183,16 @@ program
   .option("--token <token>", "API token")
   .option("--json", "machine-readable output")
   .action(diffCommand);
+
+program
+  .command("expose")
+  .description("share a local A2A agent through an outbound tunnel (no public URL needed)")
+  .requiredOption("--a2a <url>", "local A2A agent base URL (its Agent Card is validated)")
+  .option("--title <title>", "share title (default: agent card name)")
+  .option("--project <name>", "project label shown to visitors")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .action(exposeCommand);
 
 program
   .command("update")

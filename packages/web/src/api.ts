@@ -159,8 +159,21 @@ export interface PublishResult {
   size: number;
 }
 
+export interface SessionInfo {
+  owner: string;
+  email?: string;
+  name?: string;
+}
+
+export async function getSession(): Promise<SessionInfo | null> {
+  const res = await fetch("/api/v1/me");
+  if (!res.ok) return null;
+  const body = (await res.json().catch(() => null)) as SessionInfo | null;
+  return body !== null && typeof body.owner === "string" ? body : null;
+}
+
 export async function publishPack(
-  token: string,
+  token: string | undefined,
   manifest: unknown,
   bytes: Uint8Array,
   digest: string,
@@ -168,11 +181,9 @@ export async function publishPack(
   const form = new FormData();
   form.set("manifest", JSON.stringify(manifest));
   form.set("tarball", new Blob([new Uint8Array(bytes)], { type: "application/gzip" }), "pack.tgz");
-  const res = await fetch("/api/v1/agents", {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "x-pack-digest": digest },
-    body: form,
-  });
+  const headers: Record<string, string> = { "x-pack-digest": digest };
+  if (token !== undefined && token.length > 0) headers.authorization = `Bearer ${token}`;
+  const res = await fetch("/api/v1/agents", { method: "POST", headers, body: form });
   if (!res.ok) {
     const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
     throw new Error(payload.details ?? payload.error ?? `HTTP ${res.status}`);

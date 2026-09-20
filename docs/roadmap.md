@@ -56,11 +56,11 @@
 
 ## P2 — 在线 agent（5–7 周）
 
-- [ ] `endpoint` 模式：注册 MCP / A2A 端点，校验 Agent Card，反代与鉴权
-- [ ] `agentshare expose`：本地 agent 通过隧道（outbound WS）挂公网链接
-- [ ] 聊天控制台：SSE 流式、会话记录、限流与配额
-- [ ] 对话冻结与分享：只读分享页 + fork 继续问（交接核心）
-- [ ] 可嵌入 chat widget（iframe）
+- [x] `endpoint` 模式：分享远端 MCP / A2A 端点（Agent Card 校验）；tunnel 分享反向暴露为 A2A agent（facade，`contextId` 多轮）；pack manifest 支持 endpoint 声明
+- [x] `agentshare expose`：本地 A2A agent 经 outbound 隧道挂分享链接（Agent Card 校验、Ctrl+C 自动 revoke）；真机 mock A2A 冒烟含两轮对话与 facade
+- [x] 聊天控制台：SSE 流式、会话记录（transcript）、按分享限流；配额（按量计费）未做
+- [x] 对话冻结与分享：只读分享页 + fork 继续问（交接核心）
+- [x] 可嵌入 chat widget：`#/embed/:id` 紧凑版分享页，可直接 iframe
 
 ## P3 — 社区与托管运行时（4 周+）
 

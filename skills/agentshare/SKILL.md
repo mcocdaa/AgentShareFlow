@@ -36,6 +36,7 @@ agentshare import smithery <qualifiedName> [--out <dir>]    # Smithery MCP serve
 agentshare import skills-sh <owner/repo> [--skill <name>]   # GitHub skills.sh source -> local pack
 agentshare diff <from> <to> [--json]           # compare two pack versions file by file
 agentshare star <owner>/<name>                 # star a pack (unstar to remove)
+agentshare expose --a2a <url>                  # share a local A2A agent through the tunnel
 agentshare serve --mcp                         # stdio MCP server: search/info/install as tools
 ```
 
@@ -46,6 +47,8 @@ Targets: `agents` (cross-client default), `claude`, `codex`, `opencode`, `opencl
 Use `export` when the destination is not a supported harness or the user wants plain skill folders (e.g. to copy into `~/.claude/skills` manually or feed another registry). It downloads, scans, verifies the digest/signature, and writes one directory per skill root under `--out`.
 
 Use `import` to bring third-party skills into a local pack before publishing. It only writes files to a local directory and executes nothing; `push` still scans and `install` still verifies. For skills.sh sources set `GITHUB_TOKEN` to raise GitHub API limits; `--skill` picks one skill, otherwise all skills in the repo become one multi-skill pack.
+
+Use `expose` when a local A2A agent should be reachable by link without opening an inbound port: it validates the local Agent Card, creates a tunnel share, and forwards visitor messages to the local agent. Ctrl+C ends the tunnel and revokes the share. Share pages also have a compact `#/embed/<id>` variant for iframes.
 
 ## Continuing a handoff in Codex
 

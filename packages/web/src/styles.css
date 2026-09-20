@@ -566,3 +566,13 @@ button.primary:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
+.embed {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.share.compact .chat {
+  max-height: 420px;
+}

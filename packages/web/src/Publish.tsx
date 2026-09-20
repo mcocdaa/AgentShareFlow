@@ -1,5 +1,5 @@
-import { useState, type DragEvent, type FormEvent } from "react";
-import { publishPack, type PublishResult } from "./api.js";
+import { useEffect, useState, type DragEvent, type FormEvent } from "react";
+import { getSession, publishPack, type PublishResult, type SessionInfo } from "./api.js";
 import { ModeBadge } from "./components.js";
 import { extractManifestFromTarball } from "./tar.js";
 
@@ -81,6 +81,8 @@ function CopyButton({ text }: { text: string }) {
 
 export function PublishPage() {
   const [token, setToken] = useState(() => window.localStorage.getItem(TOKEN_KEY) ?? "");
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [file, setFile] = useState<SelectedFile | null>(null);
   const [manifest, setManifest] = useState<unknown>(null);
   const [preview, setPreview] = useState<PackPreview | null>(null);
@@ -90,6 +92,12 @@ export function PublishPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
+
+  useEffect(() => {
+    getSession()
+      .then((found) => setSession(found))
+      .finally(() => setSessionChecked(true));
+  }, []);
 
   const selectFile = async (selected: File | null): Promise<void> => {
     setFile(selected === null ? null : { name: selected.name, size: selected.size });
@@ -124,16 +132,16 @@ export function PublishPage() {
       setError("choose a tarball created by `agentshare pack` first");
       return;
     }
-    if (token.trim().length === 0) {
-      setError("API token is required");
+    if (session === null && token.trim().length === 0) {
+      setError("API token is required (or sign in via this registry's OIDC login)");
       return;
     }
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      window.localStorage.setItem(TOKEN_KEY, token.trim());
-      setResult(await publishPack(token.trim(), manifest, bytes, digest));
+      if (token.trim().length > 0) window.localStorage.setItem(TOKEN_KEY, token.trim());
+      setResult(await publishPack(token.trim() || undefined, manifest, bytes, digest));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -244,8 +252,13 @@ export function PublishPage() {
           <span className="step-num">3</span>
           <h3>Authenticate &amp; publish</h3>
         </div>
+        {sessionChecked && session !== null && (
+          <p className="muted small">
+            Signed in as <strong>{session.owner}</strong> — token not required.
+          </p>
+        )}
         <label className="field">
-          API token
+          API token{session !== null && <span> (optional)</span>}
           <input
             type="password"
             value={token}
@@ -254,7 +267,11 @@ export function PublishPage() {
             onChange={(event) => setToken(event.target.value)}
           />
         </label>
-        <p className="muted small">Stored in this browser only; sent to this registry as a Bearer token.</p>
+        <p className="muted small">
+          {session !== null
+            ? "Only needed to publish under a different owner; otherwise this browser session is used."
+            : "Stored in this browser only; sent to this registry as a Bearer token."}
+        </p>
 
         {error !== null && <p className="banner error">{error}</p>}
         {result !== null && (

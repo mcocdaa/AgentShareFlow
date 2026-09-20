@@ -11,7 +11,7 @@
 ```
 packages/
   core/            规范与共享逻辑：Agent Pack（zod）、打包/校验/解包、harness 目录、分享协议与隧道客户端
-  cli/             agentshare CLI：login / pack / push / search / info / install / update / export / import / handoff / share / serve --mcp
+  cli/             agentshare CLI：login / pack / push / search / info / install / update / export / import / handoff / share / expose / serve --mcp
   registry/        中转服务：Hono + node:sqlite；packs API、分享 API、隧道 hub、本地存储
   web/             Vite + React：包浏览 + 发布页（#/publish）+ 访客聊天页（#/share/:id）
   dsh-plugin/      DeepSeek Harness 插件（非 pnpm workspace 成员，见下）
@@ -151,6 +151,31 @@ curl -X POST https://relay.example.com/api/v1/shares/<id>/a2a \
 
 也可用 core 客户端：`fetchAgentCard(cardUrl)` + `sendA2AMessage(card.url, text, { contextId })`。离线/撤销分别返回 `-32020`/`-32010`。
 
+## 暴露本地 agent（`agentshare expose`）
+
+本地跑着 A2A agent、又不想暴露公网端口时，用 CLI 经隧道挂到 relay 上（outbound，无入站端口）：
+
+```bash
+agentshare expose --a2a http://127.0.0.1:9999 --title "my local agent"
+# expose  Mock A2A Agent -> https://relay.example.com/#/share/<id>
+# facade  https://relay.example.com/api/v1/shares/<id>/a2a
+```
+
+- 启动时校验本地 Agent Card；访客打开分享链接对话，消息转发给本地 A2A（`SendMessage`，兼容 `message/send`），会话经 `contextId` 保持多轮。
+- 同一分享同时是 A2A agent（facade），任何 A2A 客户端可直接调用。
+- Ctrl+C 断开隧道并自动 revoke 分享。本地验证：`pnpm mock:a2a` 起 mock agent，再执行上面的命令。
+
+## 嵌入分享对话（iframe）
+
+分享页提供紧凑版 `#/embed/<id>`（无导航、固定高度），可直接嵌到文档站或内网页面：
+
+```html
+<iframe src="https://relay.example.com/#/embed/<id>" style="width:100%;height:520px;border:0"
+        title="agent share"></iframe>
+```
+
+只有分享在线时可用；访客消息仍走同样的限流与只读策略，revoke 后 iframe 内即时变成已撤销状态。
+
 ## 在线交接（M1，DSH 插件）
 
 ```bash
@@ -185,6 +210,7 @@ DSH 里 `/share` 返回 `http://localhost:8787/#/share/<id>`；`/shares` 列表�
 - **M1 在线交接**：真实 DSH + 真实模型端到端验证；只读白名单、`share_create`、公网部署、endpoint（A2A）分享、A2A facade 均完成；剩插件 npm 分发。
 - **M2 跨工具交接**：`handoff/v0` 导出（DSH）→ 导入（Codex，真实续做验证）→ 可对话交接页 → 成果回流（submission/v0）完成。
 - **P1 离线包 MVP**：diff、update/lockfile、发布扫描、账号（OIDC）、星标、签名、`export`、互操作导入（ClawHub / Smithery / skills.sh）、`serve --mcp` 完成；剩 CI 发布模板真实仓库验证与 npm 首发（待登录）。
+- **P2 在线 agent**：endpoint 分享 + A2A facade、`agentshare expose`（本地 A2A 经隧道）、分享对话（SSE/会话记录/限流）、`#/embed/:id` 嵌入版、Web 发布页完成；配额与运行时托管未做。
 - 联调细节与修复记录见 `docs/design/m1-online-handoff.md`。
 
 License: MIT

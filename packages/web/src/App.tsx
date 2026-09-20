@@ -30,12 +30,21 @@ export function App() {
   }, []);
 
   const shareMatch = /^#\/share\/([a-f0-9]+)$/.exec(hash);
+  const embedMatch = /^#\/embed\/([a-f0-9]+)$/.exec(hash);
   const detailMatch = /^#\/agents\/([^/]+)\/([^/]+)$/.exec(hash);
   const publishMatch = hash === "#/publish";
 
   useEffect(() => {
-    if (!detailMatch && !shareMatch && !publishMatch) runSearch("");
-  }, [hash, detailMatch, shareMatch, publishMatch, runSearch]);
+    if (!detailMatch && !shareMatch && !embedMatch && !publishMatch) runSearch("");
+  }, [hash, detailMatch, shareMatch, embedMatch, publishMatch, runSearch]);
+
+  if (embedMatch) {
+    return (
+      <div className="embed">
+        <SharePage id={embedMatch[1] ?? ""} compact />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
