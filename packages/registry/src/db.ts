@@ -1,5 +1,21 @@
 import { DatabaseSync } from "node:sqlite";
 
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
+
+export interface OrganizationRow {
+  name: string;
+  display_name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface OrganizationMemberRow {
+  org_name: string;
+  member_identity: string;
+  role: OrgRole;
+  created_at: string;
+}
+
 export interface PackRow {
   owner: string;
   name: string;
@@ -15,6 +31,7 @@ export interface PackRow {
   downloads: number;
   public_key: string | null;
   signature: string | null;
+  visibility: string;
   created_at: string;
 }
 
@@ -32,6 +49,7 @@ export interface PackInsert {
   file: string;
   public_key: string | null;
   signature: string | null;
+  visibility?: string;
   created_at: string;
 }
 
@@ -171,6 +189,26 @@ export class RegistryDb {
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS stars_pack ON stars (pack_owner, pack_name)",
     );
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        name TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS organization_members (
+        org_name TEXT NOT NULL,
+        member_identity TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (org_name, member_identity)
+      )
+    `);
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS org_members_identity ON organization_members (member_identity)",
+    );
     this.migratePackColumns();
     this.migrateShareColumns();
   }
@@ -182,6 +220,9 @@ export class RegistryDb {
     const has = (name: string): boolean => columns.some((column) => column.name === name);
     if (!has("public_key")) this.db.exec("ALTER TABLE packs ADD COLUMN public_key TEXT");
     if (!has("signature")) this.db.exec("ALTER TABLE packs ADD COLUMN signature TEXT");
+    if (!has("visibility")) {
+      this.db.exec("ALTER TABLE packs ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'");
+    }
   }
 
   private migrateShareColumns(): void {
@@ -211,11 +252,12 @@ export class RegistryDb {
   }
 
   insert(row: PackInsert): void {
+    const visibility = row.visibility ?? "public";
     this.db
       .prepare(
         `INSERT INTO packs
-         (owner, name, version, title, description, mode, tags, manifest, digest, size, file, public_key, signature, downloads, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+         (owner, name, version, title, description, mode, tags, manifest, digest, size, file, public_key, signature, visibility, downloads, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
       )
       .run(
         row.owner,
@@ -231,6 +273,7 @@ export class RegistryDb {
         row.file,
         row.public_key,
         row.signature,
+        visibility,
         row.created_at,
       );
   }
@@ -501,5 +544,121 @@ export class RegistryDb {
          ORDER BY m.id ASC`,
       )
       .all(shareId) as unknown as ShareMessageRow[];
+  }
+
+  /* ======================================================================== */
+  /* Organization & Access Control Methods                                    */
+  /* ======================================================================== */
+
+  createOrg(
+    name: string,
+    displayName: string,
+    description: string,
+    creatorIdentity: string,
+    at: string,
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO organizations (name, display_name, description, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(name, displayName, description, at);
+    this.db
+      .prepare(
+        "INSERT INTO organization_members (org_name, member_identity, role, created_at) VALUES (?, ?, 'owner', ?)",
+      )
+      .run(name, creatorIdentity, at);
+  }
+
+  getOrg(name: string): OrganizationRow | undefined {
+    return this.db
+      .prepare("SELECT * FROM organizations WHERE name = ?")
+      .get(name) as unknown as OrganizationRow | undefined;
+  }
+
+  listUserOrgs(memberIdentity: string): Array<{ org: OrganizationRow; role: OrgRole }> {
+    const rows = this.db
+      .prepare(
+        `SELECT o.name, o.display_name, o.description, o.created_at, m.role
+         FROM organizations o
+         JOIN organization_members m ON o.name = m.org_name
+         WHERE m.member_identity = ?
+         ORDER BY o.name ASC`,
+      )
+      .all(memberIdentity) as unknown as Array<{
+      name: string;
+      display_name: string;
+      description: string;
+      created_at: string;
+      role: string;
+    }>;
+
+    return rows.map((row) => ({
+      org: {
+        name: row.name,
+        display_name: row.display_name,
+        description: row.description,
+        created_at: row.created_at,
+      },
+      role: row.role as OrgRole,
+    }));
+  }
+
+  getOrgMemberRole(orgName: string, memberIdentity: string): OrgRole | null {
+    const row = this.db
+      .prepare(
+        "SELECT role FROM organization_members WHERE org_name = ? AND member_identity = ?",
+      )
+      .get(orgName, memberIdentity) as unknown as { role: string } | undefined;
+    return row ? (row.role as OrgRole) : null;
+  }
+
+  listOrgMembers(orgName: string): OrganizationMemberRow[] {
+    return this.db
+      .prepare(
+        "SELECT * FROM organization_members WHERE org_name = ? ORDER BY created_at ASC",
+      )
+      .all(orgName) as unknown as OrganizationMemberRow[];
+  }
+
+  addOrUpdateOrgMember(
+    orgName: string,
+    memberIdentity: string,
+    role: OrgRole,
+    at: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO organization_members (org_name, member_identity, role, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (org_name, member_identity) DO UPDATE SET role = excluded.role`,
+      )
+      .run(orgName, memberIdentity, role, at);
+  }
+
+  removeOrgMember(orgName: string, memberIdentity: string): void {
+    this.db
+      .prepare(
+        "DELETE FROM organization_members WHERE org_name = ? AND member_identity = ?",
+      )
+      .run(orgName, memberIdentity);
+  }
+
+  canUserReadPack(
+    callerIdentity: string | undefined,
+    packOwner: string,
+    packVisibility: string = "public",
+  ): boolean {
+    if (packVisibility === "public") return true;
+    if (!callerIdentity) return false;
+    if (callerIdentity === packOwner) return true;
+    const role = this.getOrgMemberRole(packOwner, callerIdentity);
+    if (role !== null) return true;
+    return false;
+  }
+
+  canUserWritePack(callerIdentity: string, packOwner: string): boolean {
+    if (callerIdentity === packOwner) return true;
+    const role = this.getOrgMemberRole(packOwner, callerIdentity);
+    return role === "owner" || role === "admin" || role === "member";
   }
 }

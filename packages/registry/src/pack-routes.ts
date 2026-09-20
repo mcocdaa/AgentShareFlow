@@ -39,6 +39,7 @@ function toSummary(row: PackRow, stars: number) {
     tags: JSON.parse(row.tags) as string[],
     downloads: row.downloads,
     stars,
+    visibility: row.visibility,
     createdAt: row.created_at,
   };
 }
@@ -54,6 +55,7 @@ function toDetail(
     ...toSummary(row, stars),
     digest: row.digest,
     size: row.size,
+    visibility: row.visibility,
     downloadUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/download`,
     readmeUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/readme`,
     readme,
@@ -84,20 +86,25 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
   const app = new Hono();
   const driver: IStorageDriver = storage ?? new LocalStorageDriver(packsDir);
 
-  app.get("/search", (c) => {
+  app.get("/search", async (c) => {
     const query = (c.req.query("q") ?? "").trim();
     const mode = c.req.query("mode");
+    const who = await resolveOwner(c, oidc);
+    const rows = db.search(query, mode).filter((row) => db.canUserReadPack(who, row.owner, row.visibility));
     return c.json({
-      items: db.search(query, mode).map((row) => toSummary(row, db.countStars(row.owner, row.name))),
+      items: rows.map((row) => toSummary(row, db.countStars(row.owner, row.name))),
     });
   });
 
   app.get("/agents/:owner/:name", async (c) => {
     const { owner, name } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const versions = db.versions(owner, name);
     const latest = versions.at(-1);
     if (!latest) return c.json({ error: "not found" }, 404);
-    const who = await resolveOwner(c, oidc);
+    if (!db.canUserReadPack(who, latest.owner, latest.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const bytes = await driver.get(latest.file);
     const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
@@ -113,9 +120,12 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
 
   app.get("/agents/:owner/:name/:version", async (c) => {
     const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
-    const who = await resolveOwner(c, oidc);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const bytes = await driver.get(row.file);
     const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
@@ -131,8 +141,12 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
 
   app.get("/agents/:owner/:name/:version/readme", async (c) => {
     const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const bytes = await driver.get(row.file);
     if (!bytes) return c.json({ error: "file not found" }, 404);
     const readme = readPackReadme(bytes);
@@ -141,8 +155,12 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
 
   app.get("/agents/:owner/:name/:version/download", async (c) => {
     const { owner, name, version } = c.req.param();
+    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
+    if (!db.canUserReadPack(who, row.owner, row.visibility)) {
+      return c.json({ error: "not found" }, 404);
+    }
     db.bumpDownloads(owner, name, version);
     const data = await driver.get(row.file);
     if (!data) return c.json({ error: "file not found" }, 404);
@@ -173,10 +191,16 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
   });
 
   app.post("/agents", async (c) => {
-    const owner = await resolveOwner(c, oidc);
-    if (!owner) return c.json({ error: "unauthorized" }, 401);
-    if (!OWNER_PATTERN.test(owner)) {
+    const callerOwner = await resolveOwner(c, oidc);
+    if (!callerOwner) return c.json({ error: "unauthorized" }, 401);
+
+    const targetOwner = (c.req.header("x-pack-owner") ?? callerOwner).toLowerCase();
+    if (!OWNER_PATTERN.test(targetOwner)) {
       return c.json({ error: "invalid owner namespace" }, 400);
+    }
+
+    if (!db.canUserWritePack(callerOwner, targetOwner)) {
+      return c.json({ error: `forbidden: you do not have permission to publish to ${targetOwner}` }, 403);
     }
 
     const body = await c.req.parseBody();
@@ -225,10 +249,10 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
       }
     }
 
-    if (db.get(owner, manifest.name, manifest.version)) {
+    if (db.get(targetOwner, manifest.name, manifest.version)) {
       return c.json(
         {
-          error: `${owner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
+          error: `${targetOwner}/${manifest.name}@${manifest.version} already exists, releases are immutable`,
         },
         409,
       );
@@ -290,11 +314,19 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
       await fsp.rm(scanTmp, { recursive: true, force: true });
     }
 
-    const relKey = path.join(owner, manifest.name, `${manifest.version}.tgz`);
+    const visibilityHeader = c.req.header("x-pack-visibility");
+    const visibility =
+      visibilityHeader && ["public", "internal", "private"].includes(visibilityHeader)
+        ? visibilityHeader
+        : manifest.metadata?.visibility && ["public", "internal", "private"].includes(manifest.metadata.visibility)
+        ? manifest.metadata.visibility
+        : "public";
+
+    const relKey = path.join(targetOwner, manifest.name, `${manifest.version}.tgz`);
     const file = await driver.put(relKey, bytes);
 
     db.insert({
-      owner: owner,
+      owner: targetOwner,
       name: manifest.name,
       version: manifest.version,
       title: manifest.title,
@@ -307,15 +339,17 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
       file,
       public_key: publicKey,
       signature: signature ?? null,
+      visibility,
       created_at: new Date().toISOString(),
     });
 
     return c.json(
       {
         ok: true,
-        ref: `${owner}/${manifest.name}@${manifest.version}`,
+        ref: `${targetOwner}/${manifest.name}@${manifest.version}`,
         digest,
         size: bytes.length,
+        visibility,
       },
       201,
     );

@@ -91,6 +91,7 @@ export class RegistryClient {
     tarball: Uint8Array,
     digest: string,
     signing: { publicKeyHeader: string; signature: string } | undefined = undefined,
+    options: { owner?: string; visibility?: string } = {},
   ): Promise<PublishResult> {
     const form = new FormData();
     form.set("manifest", JSON.stringify(manifest));
@@ -99,14 +100,17 @@ export class RegistryClient {
       new Blob([new Uint8Array(tarball)], { type: "application/gzip" }),
       `${manifest.name}-${manifest.version}.tgz`,
     );
+    const extraHeaders: Record<string, string> = {
+      "x-pack-digest": digest,
+      ...(signing === undefined
+        ? {}
+        : { "x-pack-public-key": signing.publicKeyHeader, "x-pack-signature": signing.signature }),
+      ...(options.owner ? { "x-pack-owner": options.owner } : {}),
+      ...(options.visibility ? { "x-pack-visibility": options.visibility } : {}),
+    };
     const res = await fetch(this.resolve("api/v1/agents"), {
       method: "POST",
-      headers: this.headers({
-        "x-pack-digest": digest,
-        ...signing === undefined
-          ? {}
-          : { "x-pack-public-key": signing.publicKeyHeader, "x-pack-signature": signing.signature },
-      }),
+      headers: this.headers(extraHeaders),
       body: form,
     });
     return this.toJson(res);
@@ -117,11 +121,69 @@ export class RegistryClient {
       this.resolve(
         `api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/download`,
       ),
+      { headers: this.headers() },
     );
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(body.error ?? `HTTP ${res.status} ${res.statusText}`);
     }
     return new Uint8Array(await res.arrayBuffer());
+  }
+
+  async createOrg(
+    name: string,
+    displayName?: string,
+    description?: string,
+  ): Promise<{ org: { name: string; display_name: string; description: string }; role: string }> {
+    const res = await fetch(this.resolve("api/v1/orgs"), {
+      method: "POST",
+      headers: this.headers({ "content-type": "application/json" }),
+      body: JSON.stringify({ name, displayName, description }),
+    });
+    return this.toJson(res);
+  }
+
+  async listOrgs(): Promise<{
+    organizations: Array<{
+      org: { name: string; display_name: string; description: string; created_at: string };
+      role: string;
+    }>;
+  }> {
+    const res = await fetch(this.resolve("api/v1/orgs"), { headers: this.headers() });
+    return this.toJson(res);
+  }
+
+  async getOrg(name: string): Promise<{
+    org: { name: string; display_name: string; description: string; created_at: string };
+    role: string | null;
+    members?: Array<{ org_name: string; member_identity: string; role: string; created_at: string }>;
+  }> {
+    const res = await fetch(this.resolve(`api/v1/orgs/${encodeURIComponent(name)}`), {
+      headers: this.headers(),
+    });
+    return this.toJson(res);
+  }
+
+  async addOrgMember(
+    orgName: string,
+    memberIdentity: string,
+    role = "member",
+  ): Promise<{ ok: boolean; org_name: string; member_identity: string; role: string }> {
+    const res = await fetch(this.resolve(`api/v1/orgs/${encodeURIComponent(orgName)}/members`), {
+      method: "POST",
+      headers: this.headers({ "content-type": "application/json" }),
+      body: JSON.stringify({ memberIdentity, role }),
+    });
+    return this.toJson(res);
+  }
+
+  async removeOrgMember(orgName: string, memberIdentity: string): Promise<{ ok: boolean }> {
+    const res = await fetch(
+      this.resolve(
+        `api/v1/orgs/${encodeURIComponent(orgName)}/members/${encodeURIComponent(memberIdentity)}`,
+      ),
+      { method: "DELETE", headers: this.headers() },
+    );
+    return this.toJson(res);
   }
 }

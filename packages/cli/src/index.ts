@@ -23,6 +23,11 @@ import {
   ingestCommand,
   syncCommand,
   policyCheckCommand,
+  orgCreateCommand,
+  orgListCommand,
+  orgMembersCommand,
+  orgAddMemberCommand,
+  orgRemoveMemberCommand,
 } from "./commands.js";
 import { exposeCommand } from "./expose.js";
 import { RegistryClient } from "./client.js";
@@ -82,6 +87,8 @@ program
   .option("--sign", "sign the release with an ed25519 key")
   .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
   .option("--policy <file>", "enterprise policy compliance file (default: ./policy.json)")
+  .option("--owner <owner>", "target owner/organization namespace")
+  .option("--visibility <level>", "package visibility: public, internal, private", "public")
   .option("-y, --yes", "skip interactive confirmation prompt")
   .action(publishCommand);
 
@@ -96,6 +103,8 @@ program
   .option("--sign", "sign the release with an ed25519 key")
   .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
   .option("--policy <file>", "enterprise policy compliance file (default: ./policy.json)")
+  .option("--owner <owner>", "target owner/organization namespace")
+  .option("--visibility <level>", "package visibility: public, internal, private", "public")
   .option("-y, --yes", "skip interactive confirmation prompt")
   .action(publishCommand);
 
@@ -297,6 +306,57 @@ policy
   .option("--policy <file>", "path to policy.json file")
   .option("--json", "machine-readable output")
   .action(policyCheckCommand);
+
+const org = program.command("org").description("manage enterprise organizations and workspace members");
+
+org
+  .command("create")
+  .description("create a new enterprise organization")
+  .argument("<name>", "organization namespace slug")
+  .option("--title <title>", "human-readable organization name")
+  .option("--description <desc>", "organization description")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(orgCreateCommand);
+
+org
+  .command("list")
+  .description("list organizations you belong to")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(orgListCommand);
+
+org
+  .command("members")
+  .description("list members in an organization")
+  .argument("<name>", "organization namespace slug")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(orgMembersCommand);
+
+org
+  .command("add-member")
+  .description("add or update an organization member's role")
+  .argument("<org>", "organization namespace slug")
+  .argument("<identity>", "user identity / email / username")
+  .option("--role <role>", "role: owner, admin, member, viewer", "member")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(orgAddMemberCommand);
+
+org
+  .command("remove-member")
+  .description("remove a member from an organization")
+  .argument("<org>", "organization namespace slug")
+  .argument("<identity>", "user identity / email / username")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--json", "machine-readable output")
+  .action(orgRemoveMemberCommand);
 
 try {
   await program.parseAsync(process.argv);

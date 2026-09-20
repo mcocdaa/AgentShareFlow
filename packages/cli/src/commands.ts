@@ -509,6 +509,8 @@ export interface PublishOptions {
   sign?: boolean;
   key?: string;
   policy?: string;
+  owner?: string;
+  visibility?: string;
   yes?: boolean;
 }
 
@@ -681,6 +683,7 @@ export async function publishCommand(
       signing
         ? { publicKeyHeader: signing.publicKeyHeader, signature: signing.signature }
         : undefined,
+      { owner: options.owner, visibility: options.visibility },
     );
 
     console.log(`\n  🚀 Successfully published ${published.ref}!`);
@@ -1421,4 +1424,97 @@ export async function policyCheckCommand(
   if (!evalResult.passed) {
     process.exitCode = 1;
   }
+}
+
+export async function orgCreateCommand(
+  name: string,
+  options: { title?: string; description?: string; registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const token = resolveToken(config, options.token);
+  if (!token) throw new Error("Creating organization requires authentication. Run `agentshare login`.");
+  const client = new RegistryClient(resolveRegistry(config, options.registry), token);
+  const result = await client.createOrg(name, options.title, options.description);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`✓ Organization "${result.org.name}" created (${result.org.display_name}) with role: ${result.role}`);
+}
+
+export async function orgListCommand(
+  options: { registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const token = resolveToken(config, options.token);
+  if (!token) throw new Error("Listing organizations requires authentication. Run `agentshare login`.");
+  const client = new RegistryClient(resolveRegistry(config, options.registry), token);
+  const result = await client.listOrgs();
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log("Your Organizations:");
+  if (result.organizations.length === 0) {
+    console.log("  (no organizations found)");
+    return;
+  }
+  for (const item of result.organizations) {
+    console.log(`  • ${item.org.name.padEnd(20)} [${item.role}]  ${item.org.display_name}`);
+  }
+}
+
+export async function orgMembersCommand(
+  name: string,
+  options: { registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const client = new RegistryClient(resolveRegistry(config, options.registry), resolveToken(config, options.token));
+  const result = await client.getOrg(name);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`Organization: ${result.org.name} (${result.org.display_name})`);
+  console.log(`Your Role:    ${result.role ?? "none"}`);
+  if (result.members && result.members.length > 0) {
+    console.log("\nMembers:");
+    for (const m of result.members) {
+      console.log(`  • ${m.member_identity.padEnd(24)} [${m.role}]`);
+    }
+  }
+}
+
+export async function orgAddMemberCommand(
+  orgName: string,
+  memberIdentity: string,
+  options: { role?: string; registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const token = resolveToken(config, options.token);
+  if (!token) throw new Error("Adding organization member requires authentication.");
+  const client = new RegistryClient(resolveRegistry(config, options.registry), token);
+  const result = await client.addOrgMember(orgName, memberIdentity, options.role ?? "member");
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`✓ Added/updated ${result.member_identity} in ${result.org_name} with role [${result.role}]`);
+}
+
+export async function orgRemoveMemberCommand(
+  orgName: string,
+  memberIdentity: string,
+  options: { registry?: string; token?: string; json?: boolean },
+): Promise<void> {
+  const config = loadConfig();
+  const token = resolveToken(config, options.token);
+  if (!token) throw new Error("Removing organization member requires authentication.");
+  const client = new RegistryClient(resolveRegistry(config, options.registry), token);
+  const result = await client.removeOrgMember(orgName, memberIdentity);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`✓ Removed ${memberIdentity} from ${orgName}`);
 }

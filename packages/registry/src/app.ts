@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { RegistryDb } from "./db.js";
 import { createOidcRoutes, oidcConfigFromEnv, oidcMiddleware } from "./oidc.js";
 import { createPackRoutes } from "./pack-routes.js";
+import { orgRoutes } from "./org-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
 import { type IStorageDriver, LocalStorageDriver } from "./storage.js";
@@ -55,6 +56,7 @@ export function createApp({
   app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
 
   if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc));
+  app.route("/api/v1", orgRoutes(db, oidc));
 
   app.route(
     "/api/v1",
