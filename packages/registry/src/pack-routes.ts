@@ -12,6 +12,7 @@ import {
   formatScanFinding,
   keyFingerprint,
   parseManifest,
+  readPackReadme,
   scanPack,
   verifyDigest,
 } from "@agentshare/core";
@@ -19,6 +20,7 @@ import { Hono } from "hono";
 import { type PackRow, type RegistryDb } from "./db.js";
 import { resolveOwner } from "./identity.js";
 import type { OidcConfig } from "./oidc.js";
+import { type IStorageDriver, LocalStorageDriver } from "./storage.js";
 
 function pick(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -39,12 +41,20 @@ function toSummary(row: PackRow, stars: number) {
   };
 }
 
-function toDetail(row: PackRow, versions: string[], stars: number, starred?: boolean) {
+function toDetail(
+  row: PackRow,
+  versions: string[],
+  stars: number,
+  readme: string | null = null,
+  starred?: boolean,
+) {
   return {
     ...toSummary(row, stars),
     digest: row.digest,
     size: row.size,
     downloadUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/download`,
+    readmeUrl: `/api/v1/agents/${row.owner}/${row.name}/${row.version}/readme`,
+    readme,
     manifest: JSON.parse(row.manifest) as AgentManifest,
     versions,
     ...starred === undefined ? {} : { starred },
@@ -64,11 +74,13 @@ function toDetail(row: PackRow, versions: string[], stars: number, starred?: boo
 export interface PackRouteDeps {
   db: RegistryDb;
   packsDir: string;
+  storage?: IStorageDriver;
   oidc?: OidcConfig;
 }
 
-export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
+export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps): Hono {
   const app = new Hono();
+  const driver: IStorageDriver = storage ?? new LocalStorageDriver(packsDir);
 
   app.get("/search", (c) => {
     const query = (c.req.query("q") ?? "").trim();
@@ -84,11 +96,14 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
     const latest = versions.at(-1);
     if (!latest) return c.json({ error: "not found" }, 404);
     const who = await resolveOwner(c, oidc);
+    const bytes = await driver.get(latest.file);
+    const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
       toDetail(
         latest,
         versions.map((row) => row.version),
         db.countStars(owner, name),
+        readme,
         who === undefined ? undefined : db.hasStar(who, owner, name),
       ),
     );
@@ -99,22 +114,37 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
     const who = await resolveOwner(c, oidc);
+    const bytes = await driver.get(row.file);
+    const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
       toDetail(
         row,
         db.versions(owner, name).map((entry) => entry.version),
         db.countStars(owner, name),
+        readme,
         who === undefined ? undefined : db.hasStar(who, owner, name),
       ),
     );
   });
 
-  app.get("/agents/:owner/:name/:version/download", (c) => {
+  app.get("/agents/:owner/:name/:version/readme", async (c) => {
+    const { owner, name, version } = c.req.param();
+    const row = db.get(owner, name, version);
+    if (!row) return c.json({ error: "not found" }, 404);
+    const bytes = await driver.get(row.file);
+    if (!bytes) return c.json({ error: "file not found" }, 404);
+    const readme = readPackReadme(bytes);
+    return c.json({ readme });
+  });
+
+  app.get("/agents/:owner/:name/:version/download", async (c) => {
     const { owner, name, version } = c.req.param();
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
     db.bumpDownloads(owner, name, version);
-    return new Response(fs.readFileSync(row.file), {
+    const data = await driver.get(row.file);
+    if (!data) return c.json({ error: "file not found" }, 404);
+    return new Response(Buffer.from(data), {
       headers: {
         "content-type": "application/gzip",
         "content-disposition": `attachment; filename="${name}-${version}.tgz"`,
@@ -232,10 +262,8 @@ export function createPackRoutes({ db, packsDir, oidc }: PackRouteDeps): Hono {
       await fsp.rm(scanTmp, { recursive: true, force: true });
     }
 
-    const dir = path.join(packsDir, owner, manifest.name);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${manifest.version}.tgz`);
-    fs.writeFileSync(file, bytes);
+    const relKey = path.join(owner, manifest.name, `${manifest.version}.tgz`);
+    const file = await driver.put(relKey, bytes);
 
     db.insert({
       owner: owner,

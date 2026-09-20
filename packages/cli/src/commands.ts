@@ -8,7 +8,11 @@ import {
   HARNESSES,
   LOCKFILE_FILENAME,
   ShareClient,
+  type AgentManifest,
   type Harness,
+  type PackMode,
+  formatIssues,
+  parseManifest,
   previewHandoffImport,
   importHandoff,
   createPackTarball,
@@ -260,6 +264,380 @@ export async function packCommand(dir: string, options: { out?: string }): Promi
   console.log(`size    ${result.size} bytes`);
 }
 
+export interface InitOptions {
+  yes?: boolean;
+  name?: string;
+  version?: string;
+  title?: string;
+  description?: string;
+  mode?: PackMode;
+  targets?: string;
+  mcp?: boolean;
+  mcpConfig?: string;
+  secrets?: string;
+  tags?: string;
+  force?: boolean;
+}
+
+export async function initCommand(
+  dir = ".",
+  options: InitOptions = {},
+): Promise<void> {
+  const targetDir = path.resolve(dir);
+  await fsp.mkdir(targetDir, { recursive: true });
+  const manifestFile = path.join(targetDir, "agent.json");
+
+  if (fs.existsSync(manifestFile) && !options.force && !options.yes) {
+    if (!process.stdin.isTTY) {
+      throw new Error("agent.json already exists; use --force to overwrite");
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = (
+      await rl.question("agent.json already exists. Overwrite? (y/N): ")
+    )
+      .trim()
+      .toLowerCase();
+    rl.close();
+    if (answer !== "y" && answer !== "yes") {
+      console.log("Initialization aborted.");
+      return;
+    }
+  }
+
+  const defaultName =
+    path
+      .basename(targetDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+|-+$/g, "") || "my-agent-pack";
+
+  let name = options.name ?? defaultName;
+  let version = options.version ?? "0.1.0";
+  let title =
+    options.title ??
+    name
+      .replace(/[-_]/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  let description = options.description ?? `${title} agent skill pack.`;
+  let mode: PackMode = options.mode ?? "offline";
+  let compatibility: Harness[] = options.targets
+    ? resolveTargets(options.targets)
+    : ["agents", "claude", "codex"];
+  let configureMcp = options.mcp ?? false;
+  let mcpConfigFile = options.mcpConfig ?? "mcp.json";
+  let secretsList: string[] = options.secrets
+    ? options.secrets
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+  let tagsList: string[] = options.tags
+    ? options.tags
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
+    : ["agent"];
+
+  if (process.stdin.isTTY && !options.yes) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      console.log("\n  Welcome to AgentShareFlow init wizard");
+      console.log("  This will guide you to create an agent.json pack manifest.\n");
+
+      const ansName = (await rl.question(`  Package name (${name}): `)).trim();
+      if (ansName) name = ansName.toLowerCase();
+
+      const ansVersion = (await rl.question(`  Version (${version}): `)).trim();
+      if (ansVersion) version = ansVersion;
+
+      const ansTitle = (await rl.question(`  Title (${title}): `)).trim();
+      if (ansTitle) title = ansTitle;
+
+      const ansDesc = (await rl.question(`  Description (${description}): `)).trim();
+      if (ansDesc) description = ansDesc;
+
+      const ansMode = (
+        await rl.question(`  Pack mode [offline/endpoint/runtime] (${mode}): `)
+      )
+        .trim()
+        .toLowerCase();
+      if (ansMode === "offline" || ansMode === "endpoint" || ansMode === "runtime") {
+        mode = ansMode;
+      }
+
+      const ansTargets = (
+        await rl.question(
+          `  Target harnesses [agents, claude, codex, opencode, openclaw, hermes] (${compatibility.join(
+            ", ",
+          )}): `,
+        )
+      ).trim();
+      if (ansTargets) {
+        compatibility = resolveTargets(ansTargets);
+      }
+
+      const ansMcp = (await rl.question(`  Configure MCP dependencies? (y/N): `))
+        .trim()
+        .toLowerCase();
+      if (ansMcp === "y" || ansMcp === "yes") {
+        configureMcp = true;
+        const ansMcpConfig = (
+          await rl.question(`  MCP config file path (${mcpConfigFile}): `)
+        ).trim();
+        if (ansMcpConfig) mcpConfigFile = ansMcpConfig;
+      }
+
+      const ansSecrets = (
+        await rl.question(
+          `  Declarative secrets (e.g. GITHUB_TOKEN, OPENAI_API_KEY) [optional]: `,
+        )
+      ).trim();
+      if (ansSecrets) {
+        secretsList = ansSecrets
+          .split(",")
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean);
+      }
+
+      const ansTags = (
+        await rl.question(`  Tags (comma-separated) (${tagsList.join(", ")}): `)
+      ).trim();
+      if (ansTags) {
+        tagsList = ansTags
+          .split(",")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean);
+      }
+    } finally {
+      rl.close();
+    }
+  }
+
+  const manifest: AgentManifest = {
+    spec: "agent-pack/v0",
+    name,
+    version,
+    title,
+    description,
+    mode,
+    tags: tagsList,
+    compatibility,
+    skills: ["."],
+    instructions: [],
+    ...(configureMcp ? { mcp: { config: mcpConfigFile } } : {}),
+    secrets: secretsList,
+    metadata: {},
+  };
+
+  try {
+    parseManifest(manifest);
+  } catch (err) {
+    throw new Error(`Invalid manifest configuration: ${formatIssues(err)}`);
+  }
+
+  await fsp.writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  if (configureMcp) {
+    const fullMcpPath = path.join(targetDir, mcpConfigFile);
+    if (!fs.existsSync(fullMcpPath)) {
+      const template = {
+        mcpServers: {
+          sample: {
+            command: "echo",
+            args: ["sample-mcp-server"],
+          },
+        },
+      };
+      await fsp.mkdir(path.dirname(fullMcpPath), { recursive: true });
+      await fsp.writeFile(fullMcpPath, `${JSON.stringify(template, null, 2)}\n`, "utf8");
+    }
+  }
+
+  const skillFile = path.join(targetDir, "SKILL.md");
+  if (!fs.existsSync(skillFile)) {
+    const starterSkill = [
+      `# ${title}`,
+      "",
+      `${description}`,
+      "",
+      "## When to Use",
+      "",
+      "- Activate this skill for code analysis, refactoring, or domain tasks.",
+      "",
+      "## Capabilities",
+      "",
+      "- Fast inspection and prompt skill distribution",
+      "- Standardized tool execution across Claude Code, Codex, and OpenCode",
+      "",
+      "## Usage",
+      "",
+      "Follow defined harness instructions and verify outcomes with test suites.",
+      "",
+    ].join("\n");
+    await fsp.writeFile(skillFile, starterSkill, "utf8");
+  }
+
+  console.log(`\n  ✨ Agent Pack initialized successfully!`);
+  console.log(`  manifest:   ${manifestFile}`);
+  console.log(`  skills:     ${skillFile}`);
+  if (configureMcp) {
+    console.log(`  mcp config: ${path.join(targetDir, mcpConfigFile)}`);
+  }
+  console.log(`\n  Next steps:`);
+  console.log(`    1. Edit SKILL.md to document agent prompt & skills`);
+  console.log(`    2. Run 'agentshare pack' to validate and build tarball`);
+  console.log(`    3. Run 'agentshare publish' to release to registry\n`);
+}
+
+export interface PublishOptions {
+  registry?: string;
+  token?: string;
+  dryRun?: boolean;
+  allowRisky?: boolean;
+  sign?: boolean;
+  key?: string;
+  yes?: boolean;
+}
+
+export async function publishCommand(
+  dir = ".",
+  options: PublishOptions = {},
+): Promise<void> {
+  const config = loadConfig();
+  const registry = resolveRegistry(config, options.registry);
+  const token = resolveToken(config, options.token);
+  const pack = await readPack(dir);
+
+  // 1. Static Security Scan
+  console.log(`\n  [1/4] Security Scan:`);
+  const report = await scanPack(pack.dir);
+  if (report.findings.length === 0) {
+    console.log(`    ✓ Static security scan passed (0 findings)`);
+  } else {
+    for (const finding of report.findings) {
+      console.log(`    ${finding.severity === "high" ? "✖" : "!"} ${formatScanFinding(finding)}`);
+    }
+    console.log(`    Summary: ${summarizeScan(report)}`);
+  }
+  if (report.blocked && !options.allowRisky) {
+    throw new Error(
+      `publish blocked by security scan (high severity findings); pass --allow-risky to proceed anyway`,
+    );
+  }
+
+  // 2. Tarball packaging & local verification
+  console.log(`\n  [2/4] Packaging Tarball:`);
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-publish-"));
+  try {
+    const file = path.join(tmp, `${pack.manifest.name}-${pack.manifest.version}.tgz`);
+    const result = await createPackTarball(pack.dir, file);
+    console.log(`    ✓ Tarball created: ${result.size} bytes`);
+    console.log(`    ✓ SHA256 digest:  ${result.digest}`);
+
+    // 3. Local self-signing verification
+    console.log(`\n  [3/4] Signature & Verification:`);
+    let signing: { publicKeyHeader: string; signature: string; fingerprint: string } | undefined;
+    const keyFile = options.key ?? defaultSigningKeyPath();
+    const shouldSign =
+      options.sign === true || (options.key !== undefined && fs.existsSync(keyFile));
+
+    if (shouldSign) {
+      if (!fs.existsSync(keyFile)) {
+        throw new Error(
+          `Signing key not found at ${keyFile}. Run 'agentshare keygen' first or omit --sign.`,
+        );
+      }
+      const keys = await loadSigningKey(keyFile);
+      const signature = signDigest(keys.privateKey, result.digest);
+      const isValid = verifyDigest(keys.publicKey, result.digest, signature);
+      if (!isValid) {
+        throw new Error("Local self-signature verification failed! Generated signature is invalid.");
+      }
+      const fp = keyFingerprint(keys.publicKey);
+      signing = {
+        publicKeyHeader: encodePublicKeyHeader(keys.publicKey),
+        signature,
+        fingerprint: fp,
+      };
+      console.log(`    ✓ Ed25519 local self-signature generated and verified`);
+      console.log(`    ✓ Key fingerprint: ${fp}`);
+    } else {
+      console.log(`    (unsigned release)`);
+    }
+
+    // 4. Interactive Confirmation Preview
+    console.log(`\n  [4/4] Publish Preview:`);
+    console.log("  ┌────────────────────────────────────────────────────────────┐");
+    console.log(
+      `  │ Agent Pack:     ${pack.manifest.name}@${pack.manifest.version}`.padEnd(63) + "│",
+    );
+    console.log(`  │ Title:          ${truncate(pack.manifest.title, 42)}`.padEnd(63) + "│");
+    console.log(`  │ Mode:           ${pack.manifest.mode}`.padEnd(63) + "│");
+    console.log(
+      `  │ Harnesses:      ${pack.manifest.compatibility.join(", ")}`.padEnd(63) + "│",
+    );
+    if (pack.manifest.mcp) {
+      console.log(`  │ MCP Config:     ${pack.manifest.mcp.config}`.padEnd(63) + "│");
+    }
+    if ((pack.manifest.secrets ?? []).length > 0) {
+      console.log(
+        `  │ Secrets:        ${pack.manifest.secrets?.join(", ")}`.padEnd(63) + "│",
+      );
+    }
+    console.log(
+      `  │ Security:       ${report.blocked ? "RISKY (override)" : "CLEAN"}`.padEnd(63) + "│",
+    );
+    console.log(
+      `  │ Signature:      ${signing ? `Ed25519 (${signing.fingerprint})` : "None"}`.padEnd(
+        63,
+      ) + "│",
+    );
+    console.log(`  │ Tarball Size:   ${result.size} bytes`.padEnd(63) + "│");
+    console.log(`  │ Registry:       ${registry}`.padEnd(63) + "│");
+    console.log("  └────────────────────────────────────────────────────────────┘");
+
+    if (options.dryRun) {
+      console.log("\n  ✨ Dry-run complete. Nothing was uploaded.\n");
+      return;
+    }
+
+    if (!token) {
+      throw new Error("Not logged in. Run 'agentshare login' or pass --token.");
+    }
+
+    if (process.stdin.isTTY && !options.yes) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = (
+        await rl.question(`\n  Ready to publish to ${registry}? (y/N): `)
+      )
+        .trim()
+        .toLowerCase();
+      rl.close();
+      if (answer !== "y" && answer !== "yes") {
+        console.log("  Publish cancelled by user.\n");
+        return;
+      }
+    }
+
+    const bytes = await fsp.readFile(file);
+    const client = new RegistryClient(registry, token);
+    const published = await client.publish(
+      pack.manifest,
+      bytes,
+      result.digest,
+      signing
+        ? { publicKeyHeader: signing.publicKeyHeader, signature: signing.signature }
+        : undefined,
+    );
+
+    console.log(`\n  🚀 Successfully published ${published.ref}!`);
+    console.log(`  Registry: ${registry}`);
+    console.log(`  Install:  agentshare install ${published.ref}\n`);
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true });
+  }
+}
+
 export async function pushCommand(
   dir: string,
   options: {
@@ -269,46 +647,10 @@ export async function pushCommand(
     allowRisky?: boolean;
     sign?: boolean;
     key?: string;
+    yes?: boolean;
   },
 ): Promise<void> {
-  const config = loadConfig();
-  const registry = resolveRegistry(config, options.registry);
-  const token = resolveToken(config, options.token);
-  const pack = await readPack(dir);
-  await scanOrReport(pack.dir, options.allowRisky === true, "publish");
-
-  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "agentshare-push-"));
-  try {
-    const file = path.join(tmp, `${pack.manifest.name}-${pack.manifest.version}.tgz`);
-    const result = await createPackTarball(pack.dir, file);
-    console.log(`pack    ${pack.manifest.name}@${pack.manifest.version} (${pack.manifest.mode})`);
-    console.log(`sha256  ${result.digest}`);
-
-    if (options.dryRun) {
-      console.log("dry-run ok, nothing uploaded");
-      return;
-    }
-    if (!token) throw new Error("not logged in, run `agentshare login` or pass --token");
-
-    let signing: { publicKeyHeader: string; signature: string } | undefined;
-    if (options.sign === true) {
-      const keyFile = options.key ?? defaultSigningKeyPath();
-      const keys = await loadSigningKey(keyFile);
-      signing = {
-        publicKeyHeader: encodePublicKeyHeader(keys.publicKey),
-        signature: signDigest(keys.privateKey, result.digest),
-      };
-      console.log(`sign      ed25519 ${keyFingerprint(keys.publicKey)}`);
-    }
-
-    const bytes = await fsp.readFile(file);
-    const client = new RegistryClient(registry, token);
-    const published = await client.publish(pack.manifest, bytes, result.digest, signing);
-    console.log(`pushed  ${published.ref}`);
-    console.log(`to      ${registry}`);
-  } finally {
-    await fsp.rm(tmp, { recursive: true, force: true });
-  }
+  return publishCommand(dir, { ...options, yes: options.yes ?? true });
 }
 
 interface UpdateResult {

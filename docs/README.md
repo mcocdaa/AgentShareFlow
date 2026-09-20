@@ -12,3 +12,4 @@
 ## 计划
 
 - [roadmap.md](roadmap.md) — 阶段路线图与当前冲刺状态。
+- [product_research_and_plan.md](product_research_and_plan.md) — 产品深度调研与演进白皮书：行业趋势、竞品对比、架构加固、UI 重塑与分期落地路线图。

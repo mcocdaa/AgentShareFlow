@@ -15,6 +15,8 @@ export interface PackDetail extends PackSummary {
   digest: string;
   size: number;
   downloadUrl: string;
+  readmeUrl?: string;
+  readme?: string | null;
   versions: string[];
   starred?: boolean;
   manifest: {
@@ -22,6 +24,7 @@ export interface PackDetail extends PackSummary {
     compatibility?: string[];
     skills?: string[];
     secrets?: string[];
+    mcp?: { config: string };
     endpoint?: { type: string; url: string; agentCard?: string };
     runtime?: { image?: string; dockerfile?: string; protocol?: string };
     metadata?: Record<string, string>;
@@ -190,3 +193,35 @@ export async function publishPack(
   }
   return (await res.json()) as PublishResult;
 }
+
+export async function toggleStar(
+  owner: string,
+  name: string,
+  starred: boolean,
+): Promise<{ starred: boolean; stars: number }> {
+  const res = await fetch(
+    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/star`,
+    {
+      method: starred ? "DELETE" : "POST",
+    },
+  );
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as { starred: boolean; stars: number };
+}
+
+export async function fetchPackReadme(
+  owner: string,
+  name: string,
+  version: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/readme`,
+  );
+  if (!res.ok) return null;
+  const payload = (await res.json().catch(() => ({}))) as { readme?: string | null };
+  return payload.readme ?? null;
+}
+

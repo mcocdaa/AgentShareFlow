@@ -16,6 +16,8 @@ import {
   loginCommand,
   packCommand,
   pushCommand,
+  publishCommand,
+  initCommand,
   searchCommand,
   whoamiCommand,
 } from "./commands.js";
@@ -29,7 +31,7 @@ const program = new Command();
 program
   .name("agentshare")
   .description("Publish, discover, and install Agent Packs")
-  .version("0.1.0");
+  .version("0.1.0", "-V, --cli-version");
 
 program
   .command("login")
@@ -42,6 +44,24 @@ program
 program.command("whoami").description("print current config").action(whoamiCommand);
 
 program
+  .command("init")
+  .description("interactively generate a compliant agent.json manifest and skill scaffold")
+  .argument("[dir]", "target directory", ".")
+  .option("-y, --yes", "skip interactive prompts and accept defaults")
+  .option("--name <name>", "package name (lowercase alphanumeric/hyphens)")
+  .option("--version <semver>", "version number (e.g. 0.1.0)")
+  .option("--title <title>", "human-readable package title")
+  .option("--description <desc>", "short description")
+  .option("--mode <mode>", "pack mode (offline, endpoint, runtime)")
+  .option("--targets <targets>", "target harnesses (agents, claude, codex, opencode, openclaw, hermes)")
+  .option("--mcp", "configure MCP tool dependencies")
+  .option("--mcp-config <file>", "MCP configuration file name (default: mcp.json)")
+  .option("--secrets <secrets>", "comma-separated required secrets (e.g. GITHUB_TOKEN)")
+  .option("--tags <tags>", "comma-separated discovery tags")
+  .option("--force", "overwrite existing agent.json")
+  .action(initCommand);
+
+program
   .command("pack")
   .description("validate a pack directory and create a tarball")
   .argument("[dir]", "pack directory", ".")
@@ -49,8 +69,21 @@ program
   .action(packCommand);
 
 program
+  .command("publish")
+  .description("inspect, scan, verify signatures, and publish an Agent Pack to registry")
+  .argument("[dir]", "pack directory", ".")
+  .option("--registry <url>", "registry base URL")
+  .option("--token <token>", "API token")
+  .option("--dry-run", "validate, scan, and preview without uploading")
+  .option("--allow-risky", "publish even when the security scan reports high-severity findings")
+  .option("--sign", "sign the release with an ed25519 key")
+  .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
+  .option("-y, --yes", "skip interactive confirmation prompt")
+  .action(publishCommand);
+
+program
   .command("push")
-  .description("validate, pack, and publish a pack directory")
+  .description("validate, pack, and publish a pack directory (alias for publish)")
   .argument("[dir]", "pack directory", ".")
   .option("--registry <url>", "registry base URL")
   .option("--token <token>", "API token")
@@ -58,7 +91,8 @@ program
   .option("--allow-risky", "publish even when the security scan reports high-severity findings")
   .option("--sign", "sign the release with an ed25519 key")
   .option("--key <file>", "signing key file (default: CLI config dir signing-key.json)")
-  .action(pushCommand);
+  .option("-y, --yes", "skip interactive confirmation prompt")
+  .action(publishCommand);
 
 program
   .command("keygen")

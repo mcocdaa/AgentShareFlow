@@ -120,6 +120,20 @@ function joinUrl(base: string, pathname: string): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Calculates Full Jitter exponential backoff delay in milliseconds.
+ * Formulated as: sleep = floor(random() * min(maxMs, baseMs * 2 ** min(attempt, 6)))
+ */
+export function computeFullJitterDelay(
+  attempt: number,
+  baseMs = 1_000,
+  maxMs = 30_000,
+  randomFn: () => number = Math.random,
+): number {
+  const cap = Math.min(maxMs, baseMs * 2 ** Math.min(attempt, 6));
+  return Math.floor(randomFn() * (cap + 1));
+}
+
 export interface TunnelClientOptions {
   registry: string;
   shareId: string;
@@ -128,6 +142,8 @@ export interface TunnelClientOptions {
   onStatus?: (status: "connecting" | "online" | "offline") => void;
   fetchImpl?: typeof fetch;
   retryDelayMs?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
 }
 
 export class TunnelClient {
@@ -201,7 +217,14 @@ export class TunnelClient {
       this.options.onStatus?.("offline");
       if (this.stopped) break;
       failures += 1;
-      const delay = Math.min(30_000, this.options.retryDelayMs ?? 1_000 * 2 ** Math.min(failures, 5));
+      const delay =
+        this.options.retryDelayMs !== undefined
+          ? this.options.retryDelayMs
+          : computeFullJitterDelay(
+              failures,
+              this.options.baseDelayMs ?? 1_000,
+              this.options.maxDelayMs ?? 30_000,
+            );
       await sleep(delay);
     }
   }

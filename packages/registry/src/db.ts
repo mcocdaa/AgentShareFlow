@@ -88,6 +88,8 @@ export class RegistryDb {
 
   constructor(file: string) {
     this.db = new DatabaseSync(file);
+    this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS packs (
         owner TEXT NOT NULL,

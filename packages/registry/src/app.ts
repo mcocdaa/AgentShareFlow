@@ -8,17 +8,27 @@ import { createOidcRoutes, oidcConfigFromEnv, oidcMiddleware } from "./oidc.js";
 import { createPackRoutes } from "./pack-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
+import { type IStorageDriver, LocalStorageDriver } from "./storage.js";
 
 export interface AppOptions {
   dataDir: string;
   publicUrl?: string;
   webDir?: string;
   a2aReplyTimeoutMs?: number;
+  storage?: IStorageDriver;
 }
 
-export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: AppOptions): Hono {
+export function createApp({
+  dataDir,
+  publicUrl,
+  webDir,
+  a2aReplyTimeoutMs,
+  storage,
+}: AppOptions): Hono {
+  fs.mkdirSync(dataDir, { recursive: true });
   const packsDir = path.join(dataDir, "packs");
   fs.mkdirSync(packsDir, { recursive: true });
+  const driver = storage ?? new LocalStorageDriver(packsDir);
   const db = new RegistryDb(path.join(dataDir, "registry.db"));
   const hub = new ShareHub();
 
@@ -46,7 +56,15 @@ export function createApp({ dataDir, publicUrl, webDir, a2aReplyTimeoutMs }: App
 
   if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc));
 
-  app.route("/api/v1", createPackRoutes({ db, packsDir, ...oidc === undefined ? {} : { oidc } }));
+  app.route(
+    "/api/v1",
+    createPackRoutes({
+      db,
+      packsDir,
+      storage: driver,
+      ...oidc === undefined ? {} : { oidc },
+    }),
+  );
   app.route(
     "/api/v1",
     createShareRoutes({
