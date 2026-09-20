@@ -9,7 +9,7 @@ import { createPackRoutes } from "./pack-routes.js";
 import { orgRoutes } from "./org-routes.js";
 import { ShareHub } from "./share-hub.js";
 import { createShareRoutes } from "./share-routes.js";
-import { type IStorageDriver, LocalStorageDriver } from "./storage.js";
+import { type IStorageDriver, LocalStorageDriver, createStorageDriverFromEnv } from "./storage.js";
 
 export interface AppOptions {
   dataDir: string;
@@ -29,7 +29,7 @@ export function createApp({
   fs.mkdirSync(dataDir, { recursive: true });
   const packsDir = path.join(dataDir, "packs");
   fs.mkdirSync(packsDir, { recursive: true });
-  const driver = storage ?? new LocalStorageDriver(packsDir);
+  const driver = storage ?? createStorageDriverFromEnv(packsDir);
   const db = new RegistryDb(path.join(dataDir, "registry.db"));
   const hub = new ShareHub();
 
