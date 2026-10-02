@@ -16,12 +16,12 @@
     "@agentshare/core": "workspace:*",
     "@hono/node-server": "^2.1.1",
     "@hono/oidc-auth": "^1.10.0",
-    "hono": "^4.13.8"
+    "hono": "^4.13.10"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   }
 }
