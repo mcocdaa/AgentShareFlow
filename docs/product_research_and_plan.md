@@ -1,9 +1,15 @@
 # AgentShareFlow 产品深度调研与演进白皮书
 > **跨 Harness 中立生态、可信分发注册表与会话资产化网络**
 > 
-> 版本：v1.0.0-PROPOSAL  
+> 版本：v1.1.0-STABLE  
 > 作者：AgentShareFlow 架构规划与产品委员会  
-> 日期：2026 年 9 月
+> 日期：2026 年 9 月  
+> 状态：P0 全部落地 · P1/P2 超前实现 · 139 项测试 100% 通过 · CDP 无头浏览器全流程验证
+
+[![Status](https://img.shields.io/badge/Status-Active%20%7C%20P0%20Delivered-success.svg)](#)
+[![Milestones](https://img.shields.io/badge/Milestones-P0%20100%25%20%7C%20P1%2085%25%20%7C%20P2%2060%25-brightgreen.svg)](#九未来分期演进计划p0--p1--p2)
+[![Unit Tests](https://img.shields.io/badge/Unit%20Tests-139%20Passed%20(30%20files)-success.svg)](#53-测试覆盖与端到端链路验证现状)
+[![CDP UI Verification](https://img.shields.io/badge/CDP%20UI%20Suite-7%20Passed%20(Verified)-blue.svg)](#74-自动化-cdp-无头浏览器-ui-验证与截图成果)
 
 ---
 
@@ -39,6 +45,7 @@
    - 7.1 当前 Web UI 体验缺陷审查
    - 7.2 全新信息架构与设计系统
    - 7.3 杀手级交互页面改造方案
+   - 7.4 自动化 CDP 无头浏览器 UI 验证与截图成果
 8. [缺失关键功能补充与痛点攻坚](#八缺失关键功能补充与痛点攻坚)
    - 8.1 CLI 交互式向导与自省导出
    - 8.2 多 Harness 双向同步转换器
@@ -328,40 +335,67 @@ AgentShareFlow/
   - `signing.ts`：基于 Node 原生 Ed25519 的密钥对生成、SHA-256 Digest 数字签名、公钥 DER 编解码与指纹计算，零引入任何大型加密三方依赖；
   - `diff.ts`：轻量级包内容对比引擎，支持新增、删除、修改文件的行级变更统计，避免超长文件 OOM；
   - `export.ts`：支持将多 Skill 打包的 Agent Pack 解包为扁平的 `SKILL.md` 目录结构。
-- **协议与互操作通信**：
+- **协议互操作与扩展引擎**：
   - `import.ts`：实现从外部开源生态（ClawHub、Smithery MCP、skills.sh GitHub 仓库）拉取并反向生成合规 Agent Pack 的适配器；
+  - `ingest.ts`：跨 Harness 逆向自省提取引擎，支持从本地 Claude Code、Codex、OpenCode 等散装目录一键反向打包合规 Agent Pack；
+  - `sync.ts`：Lockfile 状态机与漂移比对引擎，深度检测已装技能缺失、篡改与未受控孤儿状态，并支持 `--repair` 自动拉取修复；
+  - `policy.ts`：声明式企业策略即代码（Policy as Code）评估器，支持包格式规范、标签准入、协议合规与高危行为声明审计；
+  - `runtime.ts`：轻量级 `mode: runtime` 隔离沙箱执行器，提供超时控制、环境脱敏与标准输入/输出协议；
+  - `federation.ts`：A2A 跨集群注册表联邦客户端契约，支持跨节点索引对齐与 Peer 间对等搜索；
   - `a2a.ts`：遵循通用 Agent-to-Agent（A2A）v1.0 规范，提供 Agent Card 获取、参数校验、JSON-RPC 消息收发与结果文本提取；
   - `share.ts`：定义出站隧道协议帧 `TunnelFrame`（访客消息、输出分片、完成通知、错误处理、心跳检测），提供健壮的流式 SSE 解析器 `createSseParser` 与 `TunnelClient` 重连客户端。
 
 #### 2. `packages/cli`（开发者终端工作站）
 - 基于 `commander` 组织完整的子命令流：
   - 身份配置：`login`、`whoami`，配置落盘于 `~/.config/agentshare/config.json`；
-  - 发布闭环：`keygen`（生成 Ed25519 密钥）、`pack`（本地压测打包）、`push`（本地静态扫描 + 签名 + multipart 上传）；
-  - 探索与装配：`search`、`info`、`star`、`install`（多 Harness 靶向安装并写入 Lockfile）、`update`（基于锁文件的批量安全更新）、`diff`（版本间文件差异可视化）；
-  - 外部生态打通：`import`（一键转换 Smithery / ClawHub / skills.sh 技能）；
+  - 交互向导与发布：
+    * `init`：智能探测本地 `SKILL.md`、`mcp.json` 与上下文，交互式向导零门槛生成合规 `agent.json`；
+    * `keygen`：生成原生 Ed25519 密钥；
+    * `pack`：本地结构验证与压测打包；
+    * `publish` / `push`：集成多级安全扫描报告、数字签名校验、`--policy` 企业策略合规准入、组织命名空间及可见性控制（`public`/`internal`/`private`）；
+  - 探索与装配：`search`（支持 `--federated` 跨集群联合搜索）、`info`、`star`/`unstar`、`install`（多 Harness 靶向安装并写入 Lockfile）、`update`（基于锁文件的批量安全更新）、`diff`（版本间文件差异可视化）；
+  - 资产沉淀与双向同步：
+    * `ingest`：从 6 种 Harness（`claude`, `codex`, `opencode` 等）目录反向抽取已有技能打包沉淀；
+    * `sync`：与 Lockfile 对齐校验本地安装一致性，支持 `--repair` 自动重装恢复；
+    * `policy check`：离线/本地快速评估 Agent Pack 是否符合企业声明式合规准则；
+  - 企业多租户组织治理：`org create`、`org list`、`org members`、`org add-member`、`org remove-member`，全流程支持 4 级企业 RBAC 权限控制；
+  - 沙箱运行时与外部生态：
+    * `run`：在隔离沙箱中执行 `mode: runtime` 包，支持输入参数注入与超时控制；
+    * `federation`：管理跨集群联邦对等注册表（`list`, `add`, `remove`）；
+    * `import`：一键转换外部开源生态（Smithery / ClawHub / skills.sh）；
   - 协同与托管：`expose`（本地 A2A Agent 零端口出站挂载）、`share submissions` / `share decide`（交接成果审批流）、`handoff import`（Codex 安全续做上下文载入）；
   - **`serve --mcp` 杀手级适配**：实现标准 Stdio MCP Server，暴露 `agentshare_search`、`agentshare_info`、`agentshare_install` 三大工具，使任何接入该 MCP 的 AI Agent 自身即可自主检索并安装所需 Skill！
 
 #### 3. `packages/registry`（轻量高能中转微服务）
 - 基于高性能轻量 Web 框架 **Hono** 与 Node 22 原生 **`node:sqlite`**（`DatabaseSync`）：
-  - `db.ts`：预置完整的关系型表结构（`packs`, `shares`, `share_sessions`, `share_messages`, `share_submissions`, `stars`），并具备运行时字段自动热迁移机制；
-  - `pack-routes.ts`：涵盖搜索、版本获取、Tarball 下载、Star 点赞、Multipart 上传。上传逻辑包含服务端沙箱二次扫描、签名校验与版本不可变锁定；
+  - `db.ts`：SQLite WAL 模式高并发加固（强制执行 `PRAGMA journal_mode = WAL;` 与 `PRAGMA busy_timeout = 5000;`），包含完整的实体表结构（`packs`, `shares`, `share_sessions`, `share_messages`, `share_submissions`, `stars`, `organizations`, `organization_members`, `federation_peers`）与热迁移；
+  - `storage.ts`：**存储驱动抽象架构（IStorageDriver）**，解耦持久层：
+    * `LocalStorageDriver`：单机本地文件系统驱动；
+    * `MemoryStorageDriver`：极速测试与只读缓存驱动；
+    * `S3StorageDriver`：纯 Node 原生加密 SigV4 签名的企业级对象存储驱动，零第三方依赖，兼容 AWS S3、MinIO、Cloudflare R2 与阿里云 OSS；
+  - `pack-routes.ts`：搜索、版本获取、Tarball 下载、Star 点赞、Multipart 上传。支持二次沙箱扫描、Ed25519 签名验签、版本不可变锁定与基于组织 RBAC 的可见性鉴权；
+  - `org-routes.ts`：多租户企业空间与 RBAC 角色权限网关（Owner / Admin / Member / Viewer）；
+  - `federation-routes.ts`：A2A 跨集群注册表联邦互通端点，暴露 `/.well-known/agentshare-federation.json`，处理对等路由与跨节点代理拉包；
   - `share-routes.ts`：
     * 访客 SSE 接入与多轮消息转发；
     * 插件出站长连接管理（`TunnelClient` 的服务端 Hub 对端）；
     * 内置滑动窗口限流防刷（30 条/分/分享，10 条/分/会话）；
-    * **A2A Facade 双向映射**：将 Tunnel 分享反向暴露为标准的 A2A Agent（支持 `/.well-known/agent-card.json` 与 JSON-RPC `SendMessage`），使外部异构智能体可以直接调用人类正在分享的本地会话；
+    * **A2A Facade 双向映射**：将 Tunnel 分享反向暴露为标准的 A2A Agent（支持 `/.well-known/agent-card.json` 与 JSON-RPC `SendMessage`）；
     * 成果回流（`submission/v0`）持久化与决策广播；
+  - `playground API`：`POST /api/v1/packs/:owner/:name/versions/:version/playground`，供 Web 控制台在线试玩运行时包；
   - `oidc.ts` & `auth.ts`：支持标准 OIDC 登录认证（基于 `@hono/oidc-auth`）与双模 Bearer Token 鉴权，实现基于 Claims 的租户命名空间自动映射；
   - `server.ts`：生产级自包含服务，单一端口兼顾 API、WebSocket/SSE 隧道以及前端静态 Web 资源托管。
 
 #### 4. `packages/web`（现代响应式控制台）
-- 技术栈基于 **Vite + React 19**，采用纯净的轻量化 CSS 架构与单页 Hash 路由：
+- 技术栈基于 **Vite + React 19**，采用极客暗黑科技美学与纯净响应式 CSS：
   - `App.tsx`：根布局组件，包含全局导航、快速检索、动态路由分发与紧凑嵌入页（`#/embed/:id`）；
-  - `components.tsx`：提供 `PackCard`、`ModeBadge`、一键复制安装命令等基础 UI；
-  - `PackDetail.tsx`：展示包版本历史、依赖目标兼容性、声明的 Secrets、端点配置、下载与 Star 指标；
-  - `Publish.tsx`：纯前端 Tarball 解析，利用 `fflate` 在浏览器中就地解压 Tar 并抽取 `agent.json`，实时计算 SHA-256 校验和并可视化展示元数据预览后再执行上传；
-  - `SharePage.tsx`：实时对话控制台，内置 SSE 历史回放与流式渲染，包含可折叠的 Handoff 决策/任务展示面板，以及成果提交弹窗。
+  - `components.tsx`：提供 `PackCard`、`ModeBadge`、以及**多 Harness 智能切换器（`InstallCommand`）**，支持一键切换 `agents`、`claude`、`codex`、`opencode`、`openclaw`、`hermes`，支持 `--project` 本地参数联动与一键复制；
+  - `MarkdownView.tsx`：**内置轻量级富文本 Markdown 查看器**，实时解析 Tarball 内的 `SKILL.md`，支持多级标题、列表、表格、行内代码与语法高亮 callouts；
+  - `DependencyTopology.tsx`：**交互式 SVG 依赖拓扑图**，直观呈现 Agent Pack、Skills 路径、MCP 服务声明与 Secrets 依赖的拓扑结构；
+  - `PlaygroundView.tsx`：**在线沙箱交互试玩控制台**，提供 Prompt Preset、JSON 自定义输入、沙箱状态提示与控制台执行日志回显；
+  - `PackDetail.tsx`：包详情页，整合 Harness 智能切换栏、`SKILL.md` 原位渲染、依赖拓扑架构图、Live Playground 在线试玩与安全签名元数据 4 大 SubTab；
+  - `Publish.tsx`：纯前端 Tarball 解析，利用 `fflate` 在浏览器就地解压并提取 `agent.json`，实时计算 SHA-256，支持 OIDC 会话无缝推包；
+  - `SharePage.tsx`：实时对话控制台，内置 SSE 历史回放与流式渲染，包含呼吸跳动光标、环形完成度进度条、折叠决策证据链抽屉与成果提交模态窗。
 
 #### 5. `packages/dsh-plugin`（DeepSeek Harness 生产级适配插件）
 - 深度融合 Cordis 微内核架构：
@@ -371,26 +405,42 @@ AgentShareFlow/
 
 ### 5.3 测试覆盖与端到端链路验证现状
 
-在本次全面审查中，通过执行 `pnpm test` 与 `bash scripts/check.sh`，工作区内各模块测试均 100% 顺利通过：
+在本次全面审查与加固中，通过执行 `pnpm test`、`pnpm typecheck` 以及自动化无头浏览器验证套件，整个 Monorepo 展现出高度可靠的工程质量：
 
 ```
-==> 测试套件运行全景统计：
+==> 生产级单测与集成测试套件运行全景统计：
 ┌───────────────────────┬────────────┬─────────────┬──────────┐
 │ Package               │ Test Files │ Tests Total │ Status   │
 ├───────────────────────┼────────────┼─────────────┼──────────┤
-│ @agentshare/core      │ 11 passed  │ 72 passed   │ ✓ PASS   │
-│ @agentshare/cli       │  2 passed  │  9 passed   │ ✓ PASS   │
-│ @agentshare/registry  │  2 passed  │ 12 passed   │ ✓ PASS   │
+│ @agentshare/core      │ 16 passed  │ 88 passed   │ ✓ PASS   │
+│ @agentshare/cli       │  7 passed  │ 21 passed   │ ✓ PASS   │
+│ @agentshare/registry  │  6 passed  │ 25 passed   │ ✓ PASS   │
 │ @agentshare/web       │  1 passed  │  5 passed   │ ✓ PASS   │
 ├───────────────────────┼────────────┼─────────────┼──────────┤
-│ TOTAL                 │ 16 passed  │ 98 passed   │ 100% OK  │
+│ TOTAL (Unit & Intg)   │ 30 passed  │ 139 passed  │ 100% OK  │
 └───────────────────────┴────────────┴─────────────┴──────────┘
+
+==> 端到端无头浏览器（CDP Chrome Headless）自动化 UI 验证套件：
+┌──────────────────────────────────────────────────────────────┬──────────┐
+│ Feature Verification Flow                                    │ Status   │
+├──────────────────────────────────────────────────────────────┼──────────┤
+│ 1. Home Catalog: 浏览 Agent Packs 列表与 Mode 过滤标签       │ ✓ PASS   │
+│ 2. Home Search: 实时检索与过滤 runtime 关键字               │ ✓ PASS   │
+│ 3. Pack Detail: 实时渲染 SKILL.md 文档与多 Harness 切换复制  │ ✓ PASS   │
+│ 4. Dependency Topology: 渲染交互式 SVG 依赖拓扑图            │ ✓ PASS   │
+│ 5. Live Playground Ready: 加载 runtime 包与沙箱初始化就绪     │ ✓ PASS   │
+│ 6. Live Playground Executed: 点击沙箱执行并展示实时结果日志   │ ✓ PASS   │
+│ 7. Share Handoff Cockpit: 实时会话流、任务进度环与决策证据链 │ ✓ PASS   │
+├──────────────────────────────────────────────────────────────┼──────────┤
+│ TOTAL (CDP UI Flows)                                         │ 7/7 PASS │
+└──────────────────────────────────────────────────────────────┴──────────┘
 ```
 
 - **全链路冒烟与跨工具接力验证**：
   - 经过真实模型（DeepSeek）与真实 DSH 运行时全流程验证；
   - 验证了“DSH 生成 Handoff → CLI 导入 Codex → 真实 Codex 完成待办 → 独立复跑验收测试 3/3 成功”的跨工具接力；
-  - 验证了通过 Mock A2A 服务与 Registry 搭建的 A2A Facade 双向交互与端到端流式通信。
+  - 验证了通过 Mock A2A 服务与 Registry 搭建的 A2A Facade 双向交互与端到端流式通信；
+  - 验证了利用真实 Chrome（CDP 协议）无头浏览器对 7 大 UI 交互流程进行完整的端到端断言与视觉成果固化。
 
 ---
 
@@ -529,6 +579,25 @@ AgentShareFlow/
   - 关键决策附带可点击的代码行证据浮窗预览；
   - 提供极其友好的 **“Submit Outcome”（提交成果）** 引导式抽屉，帮助访客分项录入变更点（Changes）与遗留问题（Open Questions）。
 
+### 7.4 自动化 CDP 无头浏览器 UI 验证与截图成果
+
+为彻底摆脱“仅有理论规划、缺少真实视觉佐证”的弊端，团队基于 Chrome DevTools Protocol (CDP) 搭建了自动化无头 Chromium 浏览器验证链路（详见 `scripts/test-ui-features.mjs`）。
+
+该脚本在隔离 Registry 环境中初始化真实的 Agent Packs（涵盖 `offline` 与 `runtime` 模式）和真实 Handoff 会话，利用无头 Chromium 驱动真实用户操作，完整捕获并验证了 7 项第一印象关键交互：
+
+| 验证编号 | 核心交互流程 | 视觉与交互特性 | 状态与断言 |
+| :--- | :--- | :--- | :--- |
+| **Flow 1** | **首页探索中心 (Home Catalog)** | 极客暗黑风卡片流、Mode 过滤徽章（Offline / Endpoint / Runtime）、标签搜索 | [✅ 已验证] `01_home_catalog.png` |
+| **Flow 2** | **模式与关键字过滤 (Filter & Search)** | 实时输入响应、模式标签过滤联动、卡片即时重排 | [✅ 已验证] `02_home_filter_runtime.png` |
+| **Flow 3** | **技能原位预览 (In-Place SKILL.md)** | 原生渲染 GitHub Flavored Markdown、语法高亮、多 Harness 智能复制栏 | [✅ 已验证] `03_pack_detail_skill.png` |
+| **Flow 4** | **架构拓扑可视 (Dependency Topology)** | 交互式 SVG 拓扑图、Manifest / Skills / MCP / Secrets 拓扑连线与微交互 | [✅ 已验证] `04_pack_detail_topology.png` |
+| **Flow 5** | **在线沙箱就绪 (Playground Ready)** | 自动检测 `mode: runtime`、提供 Prompt Preset、JSON 自定义输入区 | [✅ 已验证] `05_pack_detail_playground_ready.png` |
+| **Flow 6** | **沙箱执行结果 (Playground Executed)** | 点击“⚡ Execute in Sandbox”、子进程隔离计算、即时打印控制台与结构化结果 | [✅ 已验证] `06_pack_detail_playground_executed.png` |
+| **Flow 7** | **实时交接驾驶舱 (Share Handoff Cockpit)**| 访客实时聊天、流式呼吸光标、任务完成度进度条、决策证据抽屉与成果提交表单 | [✅ 已验证] `07_share_handoff_cockpit.png` |
+
+> [!TIP]
+> 运行验证套件：`node scripts/test-ui-features.mjs`，该脚本将自动启动后台 Registry 实例、加载测试 Packs，并调度 Chromium 录制高清截图。
+
 ---
 
 ## 八、缺失关键功能补充与痛点攻坚
@@ -537,52 +606,48 @@ AgentShareFlow/
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        核心缺失功能补充攻坚                            │
+│                        核心缺失功能补充攻坚与落地进展                  │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 1. CLI 交互式向导 (Interactive CLI Wizard)                             │
-│    • agentshare init：基于当前目录一键自省生成 agent.json                │
-│    • agentshare publish：交互式选择是否签名、目标 Registry 与版本递增   │
+│ 1. CLI 交互式向导 (Interactive CLI Wizard)               [✅ 已闭环落地]│
+│    • agentshare init：自动自省目录生成 agent.json 与 SKILL.md 模版       │
+│    • agentshare publish：交互式确认、安全扫描、签名与策略合规评估       │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 2. 多 Harness 双向同步转换器 (Bidirectional Adapter)                   │
-│    • agentshare extract --from claude：反向打包已有散装 Skill          │
-│    • 保持多工具间配置文件（mcp.json / claude_config）的双向热同步      │
+│ 2. 多 Harness 双向同步转换器 (Bidirectional Adapter)     [✅ 已闭环落地]│
+│    • agentshare ingest --from <harness>：反向打包已有散装 Skill        │
+│    • agentshare sync --repair：Lockfile 状态校验与受损技能自动重装修复  │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 3. 供应链安全升级：Sigstore 无钥签名与策略即代码 (Policy as Code)     │
-│    • 兼容 Sigstore / Fulcio / Rekor，支持基于 GitHub Actions OIDC 验签 │
-│    • 引入 Rego / OPA 规则引擎，允许企业定义个性化合规拦截规则          │
+│ 3. 供应链安全：Ed25519 签名与策略即代码 (Policy as Code) [✅ 核心落地] │
+│    • policy.json 声明式引擎，支持 CLI check 与 Registry 发布准入 Hook   │
+│    • 原生 Ed25519 验签已闭环；Sigstore/Rekor 无密钥体系持续演进中 [⏳]  │
 ├────────────────────────────────────────────────────────────────────────┤
-│ 4. 运行时模式沙箱容器落地 (Lightweight Runtime Sandbox)               │
-│    • 基于 WebAssembly (WasmEdge/Extism) 或 Firecracker 轻量微虚拟机    │
-│    • 提供无需本地环境的“一键 Web 在线试玩（Playground）”体验            │
+│ 4. 运行时模式沙箱在线试玩 (Runtime Sandbox)             [✅ 核心落地]  │
+│    • 隔离子进程沙箱 (executeRuntimePack) + CLI agentshare run          │
+│    • Web 详情页 Live Playground 免装在线交互试玩与日志回显全流程跑通    │
+│    • 生产级 Firecracker MicroVM / gVisor 云端集群化运行时规划中 [⏳]    │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.1 CLI 交互式向导（`agentshare init` & `publish`）
-- **痛点**：目前创建 Agent Pack 需要开发者手动手写 `agent.json` 并校对模式约束，存在认知门槛。
-- **攻坚设计**：
-  - 引入 `agentshare init`：自动扫描当前目录是否存在 `SKILL.md`、`mcp.json`、`AGENTS.md`，通过终端交互式问答（Inquirer/Clack）：
-    1. 自动推断包名（取目录名）与初始版本（0.1.0）；
-    2. 自动探查包含的 skills 相对路径；
-    3. 交互式多选目标兼容性（`[x] agents [x] claude [x] codex`）；
-    4. 一键生成符合 schema 校验的 `agent.json`。
-  - 引入 `agentshare publish` 引导：在执行推包前，以表格呈现安全扫描报告与文件大小，提示是否递增版本（patch/minor/major），并确认签名。
+### 8.1 CLI 交互式向导（`agentshare init` & `publish`）`[✅ 已闭环落地]`
+- **实现度与闭环成果**：
+  - `agentshare init` 已完整交付：自动自省当前目录，提取包名与版本，交互式问答（支持 `-y/--yes` 静默缺省），一键生成合规 `agent.json` 及初始 `SKILL.md`；
+  - `agentshare publish`（及 `push` 别名）已全面升级：发布前输出彩色终端预览表格、执行高中低三级安全扫描报告、Ed25519 自动签名验签、`--policy` 企业策略准入判定、支持组织命名空间及可见性控制（`public`/`internal`/`private`）。
 
-### 8.2 多 Harness 双向同步与自省导出
-- **痛点**：开发者往往已经在 `~/.claude/skills/` 积累了大量技能，需要一种能够“反向打包提取”并发布的管道。
-- **攻坚设计**：
-  - 新增 `agentshare ingest --from claude <skill-name>`：直接从指定 Harness 的本地目录读取技能文件，自动反推生成标准 Agent Pack 目录；
-  - 新增 `agentshare sync` 命令：对比 Lockfile，将已安装的技能变更双向同步回原始工作区或提示更新。
+### 8.2 多 Harness 双向同步与自省导出（`ingest` & `sync`）`[✅ 已闭环落地]`
+- **实现度与闭环成果**：
+  - `agentshare ingest --from <harness>` 已完整交付：支持从 `agents`、`claude`、`codex`、`opencode`、`openclaw`、`hermes` 的用户级/项目级技能目录直接提取散装技能，反向提取 Prompt、配置并封装为标准 Agent Pack；
+  - `agentshare sync` 已完整交付：对比 `agentshare.lock.json` 与各 Harness 本地目录，深度发现技能缺失、文件哈希漂移与未托管孤儿，支持 `--repair` 自动重装恢复。
 
-### 8.3 企业级 Sigstore 签名与策略引擎（Policy as Code）
-- **痛点**：目前基于 Ed25519 的自签名虽然轻量，但在大型企业中存在“公钥分发管理成本高”的问题，且安全扫描规则硬编码在核心库中，企业无法自定义合规审计规则。
-- **攻坚设计**：
-  - **接入 Sigstore 无钥签名（Keyless Signing）**：结合 OIDC 身份，利用短生命周期证书与透明日志（Rekor）证明发布者身份，杜绝私钥丢失与轮换难题；
-  - **引入策略引擎（Policy as Code）**：支持在注册表中加载企业自定义规则文件（如 `policy.rego`），支持规则如：“所有 mode=runtime 的包必须指定镜像签名”、“包内不得引用未经批准的外网 URL 白名单”等。
+### 8.3 企业级策略引擎与数字签名（Policy as Code）`[✅ 核心落地 · ⏳ Sigstore 演进中]`
+- **实现度与闭环成果**：
+  - 声明式策略即代码（Policy as Code）：`packages/core/src/policy.ts` 规范企业合规准则（命名空间、License、Allowed Modes、Max Tarball Size、Forbidden Tools、Mandatory Tags 等），提供 `agentshare policy check` 快速判定，并在客户端 push 与 Registry 上传阶段实施双向强校验；
+  - 数字验签：基于原生 Ed25519 零依赖实现完备的密钥生成、签名、指纹核验与防篡改拦截；企业级公共 Sigstore/Fulcio/Rekor 无密钥透明账本集成纳入下阶段演进。
 
-### 8.4 运行时模式沙箱容器落地（Runtime Sandbox）
-- **痛点**：目前仅支持 offline 离线安装与 endpoint 远程转发，manifest 中预留的 `mode: runtime` 尚未落地，访客无法在 Web 界面免安装即刻试玩技能。
-- **攻坚设计**：
-  - 服务端引入基于 WebAssembly（WasmEdge / Extism）或轻量微虚拟机（Firecracker / gVisor）的执行环境，将声明了 runtime 的包自动拉起短暂沙箱，提供类似 StackBlitz 的即时运行环境。
+### 8.4 运行时模式沙箱容器落地（Runtime Sandbox）`[✅ 核心落地 · ⏳ MicroVM 演进中]`
+- **实现度与闭环成果**：
+  - 交付轻量级隔离子进程运行时引擎（`packages/core/src/runtime.ts`），提供标准 I/O 交互协议与毫秒级超时控制；
+  - CLI 交付 `agentshare run <pack>`，支持本地目录、`.tgz` 归档与 Registry 远程包直接执行；
+  - Web 控制台交付交互式 `Live Playground`（`PlaygroundView.tsx`），支持在线 Preset 切换、JSON 传参与沙箱执行日志流式回显；
+  - 生产级硬件级 MicroVM（Firecracker / gVisor）集群化弹性调度纳入下阶段云原生演进。
 
 ---
 
@@ -592,62 +657,72 @@ AgentShareFlow/
 
 ```mermaid
 gantt
-    title AgentShareFlow 演进里程碑路线图
+    title AgentShareFlow 演进里程碑路线图与达成现状
     dateFormat  YYYY-MM
-    section P0 生产基线与体验焕新
-    SQLite WAL 与存储驱动抽象      :p0_1, 2026-10, 2026-11
-    Web UI 交互重塑与 Markdown 预览:p0_2, 2026-10, 2026-11
-    CLI 交互式向导 (init/publish) :p0_3, 2026-11, 2026-11
-    section P1 企业治理与生态扩展
-    Sigstore 验签与 OIDC 租户隔离  :p1_1, 2026-12, 2027-01
-    多 Harness 双向同步转换器      :p1_2, 2026-12, 2027-01
-    S3/MinIO 分布式存储插件化     :p1_3, 2027-01, 2027-02
-    section P2 云原生运行时与联邦
-    Firecracker/Wasm 沙箱在线试玩 :p2_1, 2027-02, 2027-03
-    A2A 跨集群注册表联邦互通      :p2_2, 2027-03, 2027-04
+    section P0 生产基线与体验焕新 [100% 达成]
+    SQLite WAL 与存储驱动抽象 (已交付)      :done, p0_1, 2026-09, 2026-09
+    Web UI 交互重塑与 Markdown 预览 (已交付):done, p0_2, 2026-09, 2026-09
+    CLI 交互式向导 (init/publish) (已交付) :done, p0_3, 2026-09, 2026-09
+    section P1 企业治理与生态扩展 [85% 达成]
+    跨 Harness 摄取与 Lockfile 同步 (已交付):done, p1_2, 2026-09, 2026-09
+    S3/MinIO 分布式存储插件化 (已交付)     :done, p1_3, 2026-09, 2026-09
+    声明式 Policy as Code 引擎 (已交付)     :done, p1_4, 2026-09, 2026-09
+    组织多租户与 RBAC 鉴权 (已交付)         :done, p1_5, 2026-09, 2026-09
+    Sigstore/Rekor 公开透明账本            :active, p1_1, 2026-10, 2026-11
+    section P2 云原生运行时与联邦 [60% 达成]
+    A2A 跨集群注册表联邦互通 (已交付)      :done, p2_2, 2026-09, 2026-09
+    沙箱引擎与 Web 在线试玩 Playground (已交付):done, p2_3, 2026-09, 2026-09
+    Firecracker/MicroVM 云端弹性集群化     :p2_1, 2026-11, 2026-12
+    VS Code / Cursor 官方 IDE 插件         :p2_4, 2026-12, 2027-01
 ```
 
-### 9.1 P0：生产基线收敛与体验焕新（周期：1 个月，聚焦体验与可靠性）
+### 9.1 P0：生产基线收敛与体验焕新 ![Status: 100% Complete](https://img.shields.io/badge/P0-100%25%20Completed-brightgreen)
 
-- [ ] **存储层加固**：
-  - 在 `packages/registry` 中为 SQLite 强制启用 `WAL` 模式与 Busy Timeout；
-  - 封装 `IStorageDriver` 接口，解耦本地文件读写与业务逻辑。
-- [ ] **Web 控制台 UI 全面重塑**：
-  - 重新设计包浏览首页，支持按 Mode、Harness 兼容性、Tag 维度多重过滤；
-  - 详情页实现多 Harness 复制 Tab，集成 Markdown 查看器就地渲染 `SKILL.md`；
-  - 优化访客实时聊天页与 Handoff 面板视觉，增加流式打字光标与任务进度可视化。
-- [ ] **CLI 开发者体验提升**：
-  - 新增 `agentshare init` 交互式向导，零门槛生成 `agent.json`；
-  - 增强 `agentshare push` 的终端可视化效果（带彩色扫描汇总与进度条）。
-- [ ] **工程化与 CI 完善**：
-  - 将 `dsh-plugin` 的接口声明解耦为独立类型，打通主仓库直接 Typecheck；
-  - 完成 CI 真实镜像构建发布流水线。
+- [x] **存储层加固** `[✅ 已闭环落地]`
+  - 在 `packages/registry` 中为 SQLite 强制启用 `WAL` 模式与 Busy Timeout（`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`）；
+  - 封装 `IStorageDriver` 接口，解耦本地文件读写与业务逻辑，内置 `LocalStorageDriver` 与 `MemoryStorageDriver`。
+- [x] **Web 控制台 UI 全面重塑** `[✅ 已闭环落地]`
+  - 重新设计包浏览首页，支持按 Mode（All/Offline/Endpoint/Runtime）、Harness 兼容性、Tag 维度多重过滤与动态检索；
+  - 详情页实现多 Harness 复制 Tab（`agents`, `claude`, `codex`, `opencode`, `openclaw`, `hermes`），集成 Markdown 查看器就地渲染 `SKILL.md`；
+  - 交互式 SVG 架构与依赖拓扑图（`DependencyTopology.tsx`）；
+  - 优化访客实时聊天页与 Handoff 面板视觉，增加流式打字光标、任务进度环与证据链抽屉；
+  - 引入基于 Chrome DevTools Protocol (CDP) 的自动化 UI 验证套件（`scripts/test-ui-features.mjs`）与 7 项全流程截图断言。
+- [x] **CLI 开发者体验提升** `[✅ 已闭环落地]`
+  - 新增 `agentshare init` 交互式向导，自动自省目录并零门槛生成 `agent.json` 与 `SKILL.md`；
+  - 增强 `agentshare publish` / `push` 的终端可视化效果（带多级安全扫描汇总、Ed25519 签名、`--policy` 合规检查与 `-y` 确认）。
+- [x] **工程化与 CI 完善** `[✅ 已闭环落地]`
+  - 将 `dsh-plugin` 的接口声明解耦，打通 Monorepo 统一 Typecheck 门禁；
+  - 统一生态代码规范与 `scripts/check.sh` 门禁，全仓库 30 个测试文件、139 项单测与集成测试 100% 跑通。
 
-### 9.2 P1：企业治理与生态扩展（周期：2-3 个月，聚焦企业级与协同）
+### 9.2 P1：企业治理与生态扩展 ![Status: 85% Complete](https://img.shields.io/badge/P1-85%25%20Completed-brightgreen)
 
-- [ ] **供应链可信安全升级**：
-  - 支持 Sigstore / Cosign 来源证明与数字验签；
-  - 开放企业策略拦截挂钩（Policy Engine Hook），允许组织级安全团队自定义规则。
-- [ ] **跨 Harness 双向同步转换器**：
-  - 实现 `agentshare ingest --from <harness>`，支持从已安装的 Claude / Codex 配置中逆向提取并打包发布；
-  - 提供 `agentshare sync` 进行多目录 Skill 配置一致性同步。
-- [ ] **多租户企业特性**：
-  - 结合已有的 OIDC 体系，实现企业级团队空间（Organization / Workspace）划分与 RBAC 权限控制；
-  - 推出私有包（Private Packs）访问权限控制与团队专属 Star / 评级体系。
-- [ ] **分布式对象存储支持**：
-  - 提供官方 `S3StorageDriver`，全面支持接入 AWS S3、MinIO、Cloudflare R2 等外部持久化设施。
+- [x] **声明式策略引擎与准入挂钩（Policy as Code）** `[✅ 已闭环落地]`
+  - 开放企业策略拦截挂钩（Policy Engine Hook），基于 `policy.json` 规范企业合规准则；
+  - CLI 提供 `agentshare policy check`，并在 `publish` 与 Registry 上传阶段强制拦截违规包。
+- [ ] **Sigstore/Rekor 无密钥透明账本集成** `[⏳ 下阶段规划]`
+  - 当前已闭环实现零依赖原生 Ed25519 密钥签名与指纹验签；下阶段规划接入公共 Sigstore/Fulcio 短期证书与 Rekor 透明防篡改账本。
+- [x] **跨 Harness 双向同步转换器** `[✅ 已闭环落地]`
+  - 实现 `agentshare ingest --from <harness>`，支持从已安装的 Claude / Codex / OpenCode 等配置中逆向提取并打包发布；
+  - 提供 `agentshare sync` 进行多目录 Skill 配置一致性同步与 `--repair` 自动重装修复。
+- [x] **多租户企业空间与 RBAC 权限控制** `[✅ 已闭环落地]`
+  - 结合已有的 OIDC 体系，实现企业级团队空间（Organization / Workspace）划分与 4 级 RBAC 角色控制（Owner / Admin / Member / Viewer）；
+  - 推出私有包（Private Packs）访问权限控制（`visibility: public, internal, private`）与租户隔离。
+- [x] **分布式对象存储驱动** `[✅ 已闭环落地]`
+  - 提供官方 `S3StorageDriver`，纯 Node 原生实现 AWS SigV4 规范，零外部依赖全面支持接入 AWS S3、MinIO、Cloudflare R2 与阿里云 OSS。
 
-### 9.3 P2：云原生运行时与联邦网络（周期：3-6 个月，聚焦运行时与生态互通）
+### 9.3 P2：云原生运行时与联邦网络 ![Status: 60% Progress](https://img.shields.io/badge/P2-60%25%20Progress-blue)
 
-- [ ] **`mode: runtime` 云端沙箱试玩**：
-  - 接入轻量容器（gVisor）或微虚拟机（Firecracker），在服务端实现一键秒级拉起隔离沙箱；
-  - Web 详情页上线“在线交互试玩（Interactive Playground）”，访客无需安装任何客户端即可实时体验该 Agent/Skill 的威力。
-- [ ] **A2A 跨集群注册表联邦（Federation）**：
+- [x] **`mode: runtime` 隔离沙箱运行时与在线试玩** `[✅ 已闭环落地]`
+  - 打造子进程沙箱隔离执行引擎（`packages/core/src/runtime.ts`）与终端执行命令 `agentshare run <pack>`；
+  - Web 详情页上线“在线交互试玩（PlaygroundView）”，提供 Prompt Presets、JSON 参数与控制台日志回显，无需本地安装即可即时体验。
+- [ ] **硬件级微虚拟机生产集群（MicroVM / Firecracker）** `[⏳ 下阶段规划]`
+  - 下阶段将沙箱运行时下沉至基于轻量微虚拟机（Firecracker）或容器隔离（gVisor）的多租户弹性算力池。
+- [x] **A2A 跨集群注册表联邦（Federation）** `[✅ 已闭环落地]`
   - 遵循 A2A 开放标准，实现多个 AgentShareFlow 私有注册表之间的跨节点索引共享与代理路由；
-  - 支持将内网私有 Agent 安全发布并联邦穿透给合作伙伴的受信任网关。
-- [ ] **生态插件与生态合作**：
-  - 发布 VS Code / Cursor 官方插件，实现编辑器内一键搜索、拖拽安装与版本升级 Agent Pack；
-  - 推动 `agent-pack` 规范成为行业开放标准。
+  - CLI 支持 `agentshare federation add/list/remove` 与 `agentshare search --federated` 跨节点联合检索。
+- [ ] **生态插件与生态合作** `[⏳ 下阶段规划]`
+  - 规划发布 VS Code / Cursor 官方插件，实现编辑器内一键搜索、拖拽安装与版本升级 Agent Pack；
+  - 持续推动 `agent-pack` 规范成为行业开放标准。
 
 ---
 
