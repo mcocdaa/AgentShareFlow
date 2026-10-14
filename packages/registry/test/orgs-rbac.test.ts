@@ -132,6 +132,28 @@ describe("organizations and enterprise RBAC", () => {
         body: charliePubForm,
       });
       expect(charliePub.status).toBe(403);
+
+      // 8. Namespace squatting protection: Alice publishes under "alice", Charlie cannot claim org "alice"
+      const alicePack = await buildTestPack("alice-personal", "1.0.0");
+      const aliceForm = new FormData();
+      aliceForm.set("manifest", JSON.stringify(alicePack.manifest));
+      aliceForm.set("tarball", new Blob([alicePack.bytes], { type: "application/gzip" }), "pack.tgz");
+      const alicePersonalPub = await app.request("/api/v1/agents", {
+        method: "POST",
+        headers: authAlice,
+        body: aliceForm,
+      });
+      expect(alicePersonalPub.status).toBe(201);
+
+      const squatRes = await app.request("/api/v1/orgs", {
+        method: "POST",
+        headers: { ...authCharlie, "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "alice",
+          displayName: "Hijacked Alice",
+        }),
+      });
+      expect(squatRes.status).toBe(409);
     } finally {
       delete process.env.AGENTSHARE_TOKENS;
     }

@@ -319,17 +319,40 @@ export class RegistryDb {
       .all(owner, name) as unknown as PackRow[];
   }
 
+  listByOwner(owner: string): PackRow[] {
+    return this.db
+      .prepare("SELECT * FROM packs WHERE owner = ? ORDER BY created_at DESC, rowid DESC")
+      .all(owner) as unknown as PackRow[];
+  }
+
   search(query: string, mode?: string): PackRow[] {
     const like = `%${query.toLowerCase()}%`;
     const modeFilter = mode ? "AND p.mode = ?" : "";
     const params: string[] = mode ? [like, like, like, like, mode] : [like, like, like, like];
     return this.db
       .prepare(
-        `SELECT * FROM packs p
+        `SELECT
+           p.owner,
+           p.name,
+           p.version,
+           p.title,
+           p.description,
+           p.mode,
+           p.tags,
+           p.manifest,
+           p.digest,
+           p.size,
+           p.file,
+           COALESCE((SELECT SUM(downloads) FROM packs WHERE owner = p.owner AND name = p.name), 0) AS downloads,
+           p.public_key,
+           p.signature,
+           p.visibility,
+           p.created_at
+         FROM packs p
          WHERE p.rowid = (SELECT MAX(rowid) FROM packs WHERE owner = p.owner AND name = p.name)
            AND (lower(p.name) LIKE ? OR lower(p.title) LIKE ? OR lower(p.description) LIKE ? OR lower(p.tags) LIKE ?)
            ${modeFilter}
-         ORDER BY p.downloads DESC, p.rowid DESC
+         ORDER BY downloads DESC, p.rowid DESC
          LIMIT 100`,
       )
       .all(...params) as unknown as PackRow[];

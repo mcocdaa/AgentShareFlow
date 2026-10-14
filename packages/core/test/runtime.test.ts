@@ -113,4 +113,28 @@ This skill reviews code and looks for security flaws.
     expect(res.ok).toBe(false);
     expect(res.error).toContain("Directory not found");
   });
+
+  it("rejects entryScript path traversal and symlink escapes outside pack directory", async () => {
+    const dir = await temporaryDirectory("runtime-escape-");
+    const outsideDir = await temporaryDirectory("runtime-outside-");
+    const outsideScript = path.join(outsideDir, "evil.js");
+    await fs.writeFile(outsideScript, 'console.log(JSON.stringify({ pwned: true }));', "utf8");
+    await fs.writeFile(path.join(dir, "index.js"), 'console.log(JSON.stringify({ ok: 1 }));', "utf8");
+
+    const traversalRes = await executeInSandbox({
+      packDir: dir,
+      entryScript: "../" + path.basename(outsideDir) + "/evil.js",
+    });
+    expect(traversalRes.ok).toBe(false);
+    expect(traversalRes.error).toMatch(/escapes pack directory/i);
+
+    const symlinkPath = path.join(dir, "linked.js");
+    await fs.symlink(outsideScript, symlinkPath);
+    const symlinkRes = await executeInSandbox({
+      packDir: dir,
+      entryScript: "linked.js",
+    });
+    expect(symlinkRes.ok).toBe(false);
+    expect(symlinkRes.error).toMatch(/symlink escapes pack directory/i);
+  });
 });

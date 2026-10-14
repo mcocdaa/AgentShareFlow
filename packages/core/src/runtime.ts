@@ -33,6 +33,72 @@ const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_TIMEOUT_MS = 30000;
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1 MB log limit
 
+export function resolveEntryScript(packDir: string, entryScript?: string): string | null {
+  const root = path.resolve(packDir);
+  const rootReal = fs.realpathSync(root);
+
+  if (entryScript !== undefined) {
+    const trimmed = entryScript.trim();
+    const full = path.resolve(packDir, trimmed);
+    if (
+      !trimmed ||
+      trimmed.includes("\\") ||
+      trimmed.includes("\0") ||
+      !full.startsWith(root + path.sep)
+    ) {
+      throw new Error(`Entry script escapes pack directory: ${entryScript}`);
+    }
+    const lstat = fs.lstatSync(full, { throwIfNoEntry: false });
+    if (lstat) {
+      let realFull: string;
+      try {
+        realFull = fs.realpathSync(full);
+      } catch {
+        throw new Error(`Entry script symlink is invalid or escapes pack directory: ${entryScript}`);
+      }
+      if (!realFull.startsWith(rootReal + path.sep)) {
+        throw new Error(`Entry script symlink escapes pack directory: ${entryScript}`);
+      }
+    }
+  }
+
+  const candidateScripts = [
+    entryScript,
+    "index.js",
+    "main.js",
+    "entry.js",
+    "index.mjs",
+    "handler.js",
+    "run.sh",
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidateScripts) {
+    const full = path.resolve(packDir, candidate);
+    if (candidate.includes("\\") || !full.startsWith(root + path.sep)) {
+      throw new Error(`Entry script escapes pack directory: ${candidate}`);
+    }
+    const lstat = fs.lstatSync(full, { throwIfNoEntry: false });
+    if (!lstat) continue;
+    let realFull: string;
+    try {
+      realFull = fs.realpathSync(full);
+    } catch {
+      if (lstat.isSymbolicLink()) {
+        throw new Error(`Entry script symlink escapes pack directory: ${candidate}`);
+      }
+      continue;
+    }
+    if (!realFull.startsWith(rootReal + path.sep)) {
+      throw new Error(`Entry script symlink escapes pack directory: ${candidate}`);
+    }
+    if (fs.statSync(realFull).isFile()) {
+      return realFull;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Executes a pack within an isolated, sandboxed child process environment.
  * Supports:
@@ -75,31 +141,41 @@ export async function executeInSandbox(
     config.maxTimeoutMs ?? MAX_TIMEOUT_MS,
   );
 
-  // Identify executable script
-  const candidateScripts = [
-    options.entryScript,
-    "index.js",
-    "main.js",
-    "entry.js",
-    "index.mjs",
-    "handler.js",
-    "run.sh",
-  ].filter(Boolean) as string[];
-
+  // Identify executable script with strict path and symlink containment
   let resolvedScript: string | null = null;
-  for (const candidate of candidateScripts) {
-    const fullPath = path.join(packDir, candidate);
-    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-      resolvedScript = fullPath;
-      break;
-    }
+  try {
+    resolvedScript = resolveEntryScript(packDir, options.entryScript);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      output: null,
+      logs: [`Error: ${message}`],
+      executionTimeMs: Date.now() - startTime,
+      exitCode: 1,
+      sandboxed: true,
+      error: message,
+    };
   }
 
   // If no script found, check if it's an offline SKILL pack to simulate
   if (!resolvedScript) {
     const skillPath = path.join(packDir, "SKILL.md");
     if (fs.existsSync(skillPath)) {
-      return simulateSkillExecution(packDir, skillPath, manifest, options.input, startTime);
+      const rootReal = fs.realpathSync(packDir);
+      const skillReal = fs.realpathSync(skillPath);
+      if (!skillReal.startsWith(rootReal + path.sep)) {
+        return {
+          ok: false,
+          output: null,
+          logs: ["Error: SKILL.md symlink escapes pack directory."],
+          executionTimeMs: Date.now() - startTime,
+          exitCode: 1,
+          sandboxed: true,
+          error: "SKILL.md symlink escapes pack directory",
+        };
+      }
+      return simulateSkillExecution(packDir, skillReal, manifest, options.input, startTime);
     }
 
     return {
@@ -147,6 +223,7 @@ export async function executeInSandbox(
 
   const logs: string[] = [];
   let totalBytes = 0;
+  let stdoutBytes = 0;
   let killed = false;
 
   return new Promise<RuntimeExecutionResult>((resolve) => {
@@ -156,6 +233,7 @@ export async function executeInSandbox(
         cwd: packDir,
         env: safeEnv,
         stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
       });
     } catch (err: unknown) {
       resolve({
@@ -170,15 +248,32 @@ export async function executeInSandbox(
       return;
     }
 
+    const killProcessGroup = () => {
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+          return;
+        } catch {
+          // Fallback to killing child directly
+        }
+      }
+      child.kill("SIGKILL");
+    };
+
     const timer = setTimeout(() => {
       killed = true;
       logs.push(`[Sandbox Watchdog] Process exceeded timeout of ${timeoutMs}ms, killed.`);
-      child.kill("SIGKILL");
+      killProcessGroup();
     }, timeoutMs);
 
     const onData = (chunk: Buffer, streamName: string) => {
+      const chunkLen = Buffer.byteLength(chunk);
       if (totalBytes > MAX_OUTPUT_BYTES) return;
-      totalBytes += chunk.length;
+      totalBytes += chunkLen;
+      if (totalBytes > MAX_OUTPUT_BYTES) {
+        logs.push(`[Sandbox Watchdog] Output exceeded ${MAX_OUTPUT_BYTES} bytes limit, truncating.`);
+        return;
+      }
       const lines = chunk.toString("utf8").split(/\r?\n/);
       for (const line of lines) {
         if (line.length > 0) {
@@ -189,7 +284,15 @@ export async function executeInSandbox(
 
     let rawStdout = "";
     child.stdout?.on("data", (chunk: Buffer) => {
-      rawStdout += chunk.toString("utf8");
+      const chunkLen = Buffer.byteLength(chunk);
+      if (Buffer.byteLength(rawStdout, "utf8") + chunkLen <= MAX_OUTPUT_BYTES && stdoutBytes + chunkLen <= MAX_OUTPUT_BYTES) {
+        rawStdout += chunk.toString("utf8");
+        stdoutBytes += chunkLen;
+      } else if (stdoutBytes < MAX_OUTPUT_BYTES) {
+        const remaining = MAX_OUTPUT_BYTES - stdoutBytes;
+        rawStdout += chunk.subarray(0, remaining).toString("utf8");
+        stdoutBytes = MAX_OUTPUT_BYTES;
+      }
       onData(chunk, "stdout");
     });
 

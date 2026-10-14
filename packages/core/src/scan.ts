@@ -44,6 +44,19 @@ const RULES: Rule[] = [
 
 const DEFAULT_SKIP = new Set([".git", "node_modules", "dist", "data", "coverage", ".agentshare"]);
 const MAX_FILE_BYTES = 512 * 1024;
+const TEXT_OR_SCRIPT_EXTENSIONS = new Set([
+  ".md",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".mts",
+  ".cts",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".json",
+]);
 
 export function scanText(text: string, file = "(text)"): ScanFinding[] {
   const findings: ScanFinding[] = [];
@@ -87,11 +100,51 @@ export async function scanPack(dir: string): Promise<ScanReport> {
     if (rel.endsWith(".tgz")) continue;
     const file = path.join(root, rel);
     const stat = await fs.stat(file);
-    if (stat.size > MAX_FILE_BYTES) continue;
-    const bytes = await fs.readFile(file);
-    if (bytes.includes(0)) continue;
+    const ext = path.extname(rel).toLowerCase();
+    const isTextOrScript = TEXT_OR_SCRIPT_EXTENSIONS.has(ext);
+
+    let bytes: Buffer;
+    if (stat.size > MAX_FILE_BYTES) {
+      findings.push({
+        rule: "oversized-file-truncated",
+        severity: "low",
+        file: rel,
+        line: 1,
+        excerpt: `File size (${stat.size} bytes) exceeds ${MAX_FILE_BYTES} bytes; scanned first ${MAX_FILE_BYTES} bytes`,
+      });
+      const handle = await fs.open(file, "r");
+      try {
+        const buf = Buffer.alloc(MAX_FILE_BYTES);
+        const { bytesRead } = await handle.read(buf, 0, MAX_FILE_BYTES, 0);
+        bytes = buf.subarray(0, bytesRead);
+      } finally {
+        await handle.close();
+      }
+    } else {
+      bytes = await fs.readFile(file);
+    }
+
+    const hasNullBytes = bytes.includes(0);
     const text = bytes.toString("utf8");
-    if (text.includes("\uFFFD")) continue;
+    const hasInvalidUtf8 = text.includes("\uFFFD");
+
+    if (hasNullBytes || hasInvalidUtf8) {
+      if (isTextOrScript) {
+        findings.push({
+          rule: hasNullBytes ? "null-byte-injection" : "invalid-utf8-encoding",
+          severity: hasNullBytes ? "high" : "medium",
+          file: rel,
+          line: 1,
+          excerpt: hasNullBytes
+            ? `Unexpected null byte / binary content in ${ext} file`
+            : `Invalid UTF-8 byte sequence in ${ext} file`,
+        });
+        scannedFiles += 1;
+        findings.push(...scanText(text.replace(/\0/g, ""), rel));
+      }
+      continue;
+    }
+
     scannedFiles += 1;
     findings.push(...scanText(text, rel));
   }

@@ -83,6 +83,20 @@ describe("parseManifest", () => {
   it("rejects plaintext-looking secret values with bad names", () => {
     expect(() => parseManifest({ ...offlineManifest, secrets: ["github_token"] })).toThrow();
   });
+
+  it("rejects path traversal in skills, instructions, mcp.config, and runtime.dockerfile", () => {
+    expect(() => parseManifest({ ...offlineManifest, skills: ["../pwned"] })).toThrow();
+    expect(() => parseManifest({ ...offlineManifest, skills: ["/etc/passwd"] })).toThrow();
+    expect(() => parseManifest({ ...offlineManifest, instructions: ["..\\secret"] })).toThrow();
+    expect(() => parseManifest({ ...offlineManifest, mcp: { config: "../mcp.json" } })).toThrow();
+    expect(() =>
+      parseManifest({
+        ...offlineManifest,
+        mode: "runtime",
+        runtime: { dockerfile: "../Dockerfile" },
+      }),
+    ).toThrow();
+  });
 });
 
 describe("readPack", () => {

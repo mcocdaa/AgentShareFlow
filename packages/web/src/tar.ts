@@ -13,14 +13,18 @@ function readOctal(bytes: Uint8Array, start: number, length: number): number {
 }
 
 export function readTarEntry(tar: Uint8Array, name: string): Uint8Array | undefined {
+  const normalizedTarget = name.replace(/^\.\//, "");
   for (let offset = 0; offset + 512 <= tar.length; ) {
     const header = tar.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
-    const entryName = readString(header, 0, 100).replace(/^\.\//, "");
+    const rawName = readString(header, 0, 100);
+    const prefix = readString(header, 345, 155);
+    const entryName = (prefix ? `${prefix}/${rawName}` : rawName).replace(/^\.\//, "");
     const size = readOctal(header, 124, 12);
     const type = header[156] ?? 0;
     const dataStart = offset + 512;
-    if ((type === 48 || type === 0) && entryName === name) {
+    if (!Number.isFinite(size) || size < 0 || dataStart + size > tar.length) break;
+    if ((type === 48 || type === 0) && entryName === normalizedTarget) {
       return tar.subarray(dataStart, dataStart + size);
     }
     offset = dataStart + Math.ceil(size / 512) * 512;

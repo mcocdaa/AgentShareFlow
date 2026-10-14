@@ -245,7 +245,11 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
               )}
               <dt>Ed25519 Signature</dt>
               <dd>
-                <span className="signature-badge verified">Verified</span>
+                {detail.signature ? (
+                  <span className="signature-badge verified">Verified</span>
+                ) : (
+                  <span className="signature-badge unsigned">Unsigned</span>
+                )}
               </dd>
             </dl>
           </div>

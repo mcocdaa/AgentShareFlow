@@ -28,6 +28,13 @@ export function orgRoutes(db: RegistryDb, oidc?: OidcConfig): Hono {
       return c.json({ error: `organization "${name}" already exists` }, 409);
     }
 
+    if (name !== caller && (db.listByOwner(name).length > 0 || db.listShares(name).length > 0)) {
+      return c.json(
+        { error: `namespace "${name}" is already in use by an existing owner` },
+        409,
+      );
+    }
+
     const now = new Date().toISOString();
     db.createOrg(name, displayName, description, caller, now);
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -43,6 +44,86 @@ export interface SyncCheckOptions {
   scope?: "user" | "project" | "dir";
   checkOrphans?: boolean;
   cwd?: string;
+}
+
+export async function computeSkillFileHashes(dir: string): Promise<Map<string, string>> {
+  const files = await collectDirectoryFiles(dir);
+  const fileHashes = new Map<string, string>();
+  for (const rel of files) {
+    const normalized = rel.split(path.sep).join("/");
+    const content = await fsp.readFile(path.join(dir, rel));
+    const digest = createHash("sha256").update(content).digest("hex");
+    fileHashes.set(normalized, digest);
+  }
+  return fileHashes;
+}
+
+export async function computeSkillDirectoryHash(dir: string): Promise<string> {
+  const fileHashes = await computeSkillFileHashes(dir);
+  const overall = createHash("sha256");
+  for (const [rel, fileDigest] of fileHashes.entries()) {
+    overall.update(`${rel}:${fileDigest}\n`);
+  }
+  return overall.digest("hex");
+}
+
+function hashesEqual(a: Map<string, string>, b: Map<string, string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, val] of a.entries()) {
+    if (b.get(key) !== val) return false;
+  }
+  return true;
+}
+
+function resolveSourceAgentsSkillDir(
+  item: LockEntry,
+  dest: string,
+  lock: Lockfile,
+  options: SyncCheckOptions,
+): string | null {
+  const skillFolderName = path.basename(dest);
+
+  // 1. Check if lockfile has a canonical "agents" install entry for the same pack
+  const agentsEntry = lock.installs.find(
+    (entry) =>
+      entry.target === "agents" &&
+      entry.owner === item.owner &&
+      entry.name === item.name &&
+      entry.scope === item.scope,
+  );
+  if (agentsEntry) {
+    const resolvedAgents = path.resolve(agentsEntry.dest);
+    if (resolvedAgents !== dest && fs.existsSync(resolvedAgents) && fs.statSync(resolvedAgents).isDirectory()) {
+      return resolvedAgents;
+    }
+  }
+
+  // 2. Check standard .agents/skills/<skillFolderName> via resolveSkillsDir or relative workspace layout
+  const candidates = [
+    path.join(
+      resolveSkillsDir("agents", {
+        project: item.scope === "project",
+        cwd: options.cwd,
+      }),
+      skillFolderName,
+    ),
+    ...(options.cwd ? [path.resolve(options.cwd, ".agents", "skills", skillFolderName)] : []),
+    path.resolve(dest, "..", "..", "..", ".agents", "skills", skillFolderName),
+    path.resolve(dest, "..", "..", ".agents", "skills", skillFolderName),
+  ];
+
+  for (const candidate of candidates) {
+    const resolvedCandidate = path.resolve(candidate);
+    if (
+      resolvedCandidate !== dest &&
+      fs.existsSync(resolvedCandidate) &&
+      fs.statSync(resolvedCandidate).isDirectory()
+    ) {
+      return resolvedCandidate;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -127,6 +208,50 @@ export async function checkSyncStatus(
       });
       drifted++;
       continue;
+    }
+
+    // Compute real SHA-256 hashes of skill files in destination
+    const destHashes = await computeSkillFileHashes(dest);
+    const destDirHash = await computeSkillDirectoryHash(dest);
+
+    // Compare against source .agents/skills directory if available
+    const sourceAgentsDir = resolveSourceAgentsSkillDir(item, dest, lock, options);
+    if (sourceAgentsDir !== null) {
+      const sourceHashes = await computeSkillFileHashes(sourceAgentsDir);
+      if (!hashesEqual(sourceHashes, destHashes)) {
+        entries.push({
+          owner: item.owner,
+          name: item.name,
+          version: item.version,
+          target: item.target,
+          scope: item.scope,
+          dest: item.dest,
+          status: "drifted",
+          fileCount: files.length,
+          reason: `Skill files drifted from source .agents/skills (SHA-256 hash mismatch)`,
+        });
+        drifted++;
+        continue;
+      }
+    } else if (/^[0-9a-f]{64}$/i.test(item.digest)) {
+      const expectedDigest = item.digest.toLowerCase();
+      const matchesDirHash = expectedDigest === destDirHash;
+      const matchesAnyFileHash = [...destHashes.values()].includes(expectedDigest);
+      if (!matchesDirHash && !matchesAnyFileHash) {
+        entries.push({
+          owner: item.owner,
+          name: item.name,
+          version: item.version,
+          target: item.target,
+          scope: item.scope,
+          dest: item.dest,
+          status: "drifted",
+          fileCount: files.length,
+          reason: `Skill files modified from recorded SHA-256 digest`,
+        });
+        drifted++;
+        continue;
+      }
     }
 
     entries.push({

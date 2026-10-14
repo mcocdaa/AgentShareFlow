@@ -132,10 +132,18 @@ async function writePack(
   await fsp.writeFile(path.join(resolved, MANIFEST_FILENAME), `${JSON.stringify(manifest, null, 2)}\n`);
   for (const [rel, content] of Object.entries(files)) {
     const segments = rel.split("/");
-    if (path.isAbsolute(rel) || segments.some((segment) => segment === ".." || segment === "")) {
+    if (
+      path.isAbsolute(rel) ||
+      rel.includes("\\") ||
+      rel.includes("\0") ||
+      segments.some((segment) => segment === ".." || segment === "")
+    ) {
       throw new Error(`refusing to write unsafe path: ${rel}`);
     }
-    const target = path.join(resolved, rel);
+    const target = path.resolve(resolved, rel);
+    if (!target.startsWith(`${resolved}${path.sep}`)) {
+      throw new Error(`refusing to write unsafe path: ${rel}`);
+    }
     await fsp.mkdir(path.dirname(target), { recursive: true });
     await fsp.writeFile(target, content);
   }
@@ -243,11 +251,20 @@ export async function importFromClawHub(
   const query = new URLSearchParams({ slug, ownerHandle: owner });
   if (options.version !== undefined) query.set("version", options.version);
   const zipResponse = await fetchWithTimeout(`${CLAWHUB_API}/api/v1/download?${query.toString()}`);
-  const entries = unzipSync(new Uint8Array(await zipResponse.arrayBuffer()));
+  const zipBytes = new Uint8Array(await zipResponse.arrayBuffer());
+  if (zipBytes.length > 25 * 1024 * 1024) {
+    throw new Error("clawhub archive exceeds maximum size of 25 MiB");
+  }
+  const entries = unzipSync(zipBytes);
 
   const files: Record<string, Uint8Array> = {};
+  let totalDecompressed = 0;
   for (const [entry, content] of Object.entries(entries)) {
     if (entry.endsWith("/") || entry === "_meta.json") continue;
+    totalDecompressed += content.byteLength;
+    if (totalDecompressed > 50 * 1024 * 1024) {
+      throw new Error("clawhub archive decompressed size exceeds 50 MiB limit");
+    }
     files[entry] = content;
   }
   const roots = skillRoots(Object.keys(files));

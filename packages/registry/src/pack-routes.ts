@@ -76,6 +76,18 @@ function toDetail(
   };
 }
 
+const PLAYGROUND_WINDOW_MS = 60_000;
+const PLAYGROUND_LIMIT_PER_WINDOW = 10;
+const MAX_UPLOAD_TARBALL_BYTES = 25 * 1024 * 1024;
+
+export async function getAuthenticatedUser(
+  c: Parameters<typeof resolveOwner>[0],
+  _db: RegistryDb,
+  oidc?: OidcConfig,
+): Promise<string | undefined> {
+  return resolveOwner(c, oidc);
+}
+
 export interface PackRouteDeps {
   db: RegistryDb;
   packsDir: string;
@@ -86,6 +98,30 @@ export interface PackRouteDeps {
 export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps): Hono {
   const app = new Hono();
   const driver: IStorageDriver = storage ?? new LocalStorageDriver(packsDir);
+  const playgroundHits = new Map<string, number[]>();
+
+  const allowPlayground = (key: string): boolean => {
+    const now = Date.now();
+    if (playgroundHits.size > 5000) {
+      for (const [k, timestamps] of playgroundHits.entries()) {
+        const active = timestamps.filter((t) => now - t < PLAYGROUND_WINDOW_MS);
+        if (active.length === 0) playgroundHits.delete(k);
+        else playgroundHits.set(k, active);
+      }
+      if (playgroundHits.size > 5000) {
+        const oldest = playgroundHits.keys().next().value;
+        if (oldest !== undefined) playgroundHits.delete(oldest);
+      }
+    }
+    const recent = (playgroundHits.get(key) ?? []).filter((t) => now - t < PLAYGROUND_WINDOW_MS);
+    if (recent.length >= PLAYGROUND_LIMIT_PER_WINDOW) {
+      playgroundHits.set(key, recent);
+      return false;
+    }
+    recent.push(now);
+    playgroundHits.set(key, recent);
+    return true;
+  };
 
   app.get("/search", async (c) => {
     const query = (c.req.query("q") ?? "").trim();
@@ -106,11 +142,12 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
     if (!db.canUserReadPack(who, latest.owner, latest.visibility)) {
       return c.json({ error: "not found" }, 404);
     }
+    const totalDownloads = versions.reduce((sum, v) => sum + v.downloads, 0);
     const bytes = await driver.get(latest.file);
     const readme = bytes ? readPackReadme(bytes) : null;
     return c.json(
       toDetail(
-        latest,
+        { ...latest, downloads: totalDownloads },
         versions.map((row) => row.version),
         db.countStars(owner, name),
         readme,
@@ -174,8 +211,13 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
   });
 
   app.post("/agents/:owner/:name/:version/playground", async (c) => {
+    const who = await getAuthenticatedUser(c, db, oidc);
+    if (!who) return c.json({ error: "unauthorized" }, 401);
+    if (!allowPlayground(`playground:${who}`)) {
+      return c.json({ error: "rate limit exceeded" }, 429);
+    }
+
     const { owner, name, version } = c.req.param();
-    const who = await resolveOwner(c, oidc);
     const row = db.get(owner, name, version);
     if (!row) return c.json({ error: "not found" }, 404);
     if (!db.canUserReadPack(who, row.owner, row.visibility)) {
@@ -184,7 +226,7 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
     const data = await driver.get(row.file);
     if (!data) return c.json({ error: "file not found" }, 404);
 
-    let body: { input?: unknown; entry?: string; timeoutMs?: number } = {};
+    let body: { input?: unknown; entry?: string; entryScript?: string; timeoutMs?: number } = {};
     try {
       body = await c.req.json();
     } catch {
@@ -201,7 +243,7 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
       const result = await executeInSandbox({
         packDir: extractedDir,
         input: body.input,
-        entryScript: body.entry,
+        entryScript: body.entryScript ?? body.entry,
         timeoutMs: typeof body.timeoutMs === "number" ? body.timeoutMs : 5000,
       });
 
@@ -251,16 +293,28 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
     if (!(tarball instanceof File)) {
       return c.json({ error: "tarball field is required (application/gzip)" }, 400);
     }
+    if (tarball.size > MAX_UPLOAD_TARBALL_BYTES) {
+      return c.json({ error: "tarball exceeds maximum allowed size (25 MiB)" }, 400);
+    }
 
     let manifest: AgentManifest;
+    let rawSubmittedManifest: Record<string, unknown>;
     try {
-      manifest = parseManifest(JSON.parse(manifestRaw));
+      const parsedRaw: unknown = JSON.parse(manifestRaw);
+      rawSubmittedManifest =
+        typeof parsedRaw === "object" && parsedRaw !== null
+          ? (parsedRaw as Record<string, unknown>)
+          : {};
+      manifest = parseManifest(parsedRaw);
     } catch (error) {
       return c.json({ error: "invalid manifest", details: formatIssues(error) }, 400);
     }
 
     const bytes = new Uint8Array(await tarball.arrayBuffer());
     if (bytes.length === 0) return c.json({ error: "empty tarball" }, 400);
+    if (bytes.length > MAX_UPLOAD_TARBALL_BYTES) {
+      return c.json({ error: "tarball exceeds maximum allowed size (25 MiB)" }, 400);
+    }
 
     const digest = createHash("sha256").update(bytes).digest("hex");
     const declared = c.req.header("x-pack-digest");
@@ -310,6 +364,63 @@ export function createPackRoutes({ db, packsDir, storage, oidc }: PackRouteDeps)
           400,
         );
       }
+
+      const extractedManifestPath = path.join(extracted, "agent.json");
+      if (!fs.existsSync(extractedManifestPath)) {
+        return c.json(
+          { error: "invalid tarball", details: "agent.json is missing from the tarball archive" },
+          400,
+        );
+      }
+      let archiveManifest: AgentManifest;
+      let rawArchiveManifest: Record<string, unknown>;
+      try {
+        const parsedArchiveRaw: unknown = JSON.parse(await fsp.readFile(extractedManifestPath, "utf8"));
+        rawArchiveManifest =
+          typeof parsedArchiveRaw === "object" && parsedArchiveRaw !== null
+            ? (parsedArchiveRaw as Record<string, unknown>)
+            : {};
+        archiveManifest = parseManifest(parsedArchiveRaw);
+      } catch (error) {
+        return c.json(
+          { error: "invalid agent.json in tarball", details: formatIssues(error) },
+          400,
+        );
+      }
+
+      const submittedOwner =
+        manifest.owner?.toLowerCase() ??
+        (typeof rawSubmittedManifest.owner === "string"
+          ? rawSubmittedManifest.owner.trim().toLowerCase()
+          : undefined);
+      const archiveOwner =
+        archiveManifest.owner?.toLowerCase() ??
+        (typeof rawArchiveManifest.owner === "string"
+          ? rawArchiveManifest.owner.trim().toLowerCase()
+          : undefined);
+      const ownerMismatch =
+        (submittedOwner !== undefined && archiveOwner !== undefined && submittedOwner !== archiveOwner) ||
+        (archiveOwner !== undefined && archiveOwner !== targetOwner) ||
+        (submittedOwner !== undefined && submittedOwner !== targetOwner);
+      const skillsMatch =
+        archiveManifest.skills.length === manifest.skills.length &&
+        archiveManifest.skills.every((skill, idx) => skill === manifest.skills[idx]);
+
+      if (
+        ownerMismatch ||
+        archiveManifest.name !== manifest.name ||
+        archiveManifest.version !== manifest.version ||
+        !skillsMatch
+      ) {
+        return c.json(
+          {
+            error: "manifest mismatch: submitted manifest does not match agent.json in tarball",
+          },
+          400,
+        );
+      }
+      manifest = archiveManifest;
+
       const report = await scanPack(extracted);
       if (report.blocked) {
         return c.json(

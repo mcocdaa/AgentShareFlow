@@ -66,4 +66,20 @@ describe("readTarEntry", () => {
   it("returns undefined when absent", () => {
     expect(readTarEntry(tar([entry("SKILL.md", "x")]), "agent.json")).toBeUndefined();
   });
+
+  it("supports USTAR prefix field (bytes 345..500) for long entry paths", () => {
+    const contentBytes = strToU8("# Deep Skill\n");
+    const header = new Uint8Array(512);
+    header.set(strToU8("SKILL.md"), 0);
+    header.set(strToU8(contentBytes.length.toString(8).padStart(11, "0")), 124);
+    header[156] = 48;
+    header.set(strToU8("skills/deeply/nested/path"), 345);
+    const padded = new Uint8Array(512);
+    padded.set(contentBytes);
+    const archive = tar([concat([header, padded])]);
+
+    const found = readTarEntry(archive, "skills/deeply/nested/path/SKILL.md");
+    expect(found).toBeDefined();
+    expect(new TextDecoder().decode(found)).toBe("# Deep Skill\n");
+  });
 });
