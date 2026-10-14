@@ -26,14 +26,21 @@ jobs:
       - name: Build and test
         run: pnpm build && pnpm test
       - name: Publish @agentshare/core
+        if: env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/core publish --no-git-checks --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @agentshare/cli
+        if: env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/cli publish --no-git-checks --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists"
+          else
+            gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+          fi
