@@ -111,7 +111,9 @@ export function oidcMiddleware(config: OidcConfig) {
   });
 }
 
-export function createOidcRoutes(config: OidcConfig): Hono {
+import { authenticate, type TokenLookupDb } from "./auth.js";
+
+export function createOidcRoutes(config: OidcConfig, db?: TokenLookupDb): Hono {
   const app = new Hono();
   app.get("/auth/callback", (c) => processOAuthCallback(c));
   app.get("/auth/login", oidcAuthMiddleware(), (c) => c.redirect("/api/v1/me"));
@@ -119,17 +121,32 @@ export function createOidcRoutes(config: OidcConfig): Hono {
     await revokeSession(c);
     return c.redirect("/");
   });
-  app.get("/me", oidcAuthMiddleware(), async (c) => {
-    const auth = await getAuth(c);
-    const owner = auth === null ? undefined : ownerFromClaims(auth, config);
-    if (auth === null || owner === undefined) {
-      return c.json({ error: "signed in, but no owner namespace could be derived from the claims" }, 403);
-    }
-    return c.json({
-      owner,
-      email: auth.email,
-      ...typeof auth["name"] === "string" ? { name: auth["name"] } : {},
-    });
-  });
+  app.get(
+    "/me",
+    async (c, next) => {
+      const contextDb =
+        db ??
+        (typeof c.get === "function"
+          ? ((c.get as (key: string) => TokenLookupDb | undefined)("db"))
+          : undefined);
+      const tokenAuth = authenticate(c.req.header("authorization"), process.env, contextDb);
+      if (tokenAuth !== null) {
+        return c.json({ owner: tokenAuth.owner });
+      }
+      return oidcAuthMiddleware()(c, next);
+    },
+    async (c) => {
+      const auth = await getAuth(c);
+      const owner = auth === null ? undefined : ownerFromClaims(auth, config);
+      if (auth === null || owner === undefined) {
+        return c.json({ error: "signed in, but no owner namespace could be derived from the claims" }, 403);
+      }
+      return c.json({
+        owner,
+        email: auth.email,
+        ...typeof auth["name"] === "string" ? { name: auth["name"] } : {},
+      });
+    },
+  );
   return app;
 }

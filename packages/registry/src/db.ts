@@ -228,6 +228,21 @@ export class RegistryDb {
         last_synced_at TEXT
       )
     `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS api_tokens (
+        token TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    this.db.exec("CREATE INDEX IF NOT EXISTS api_tokens_owner ON api_tokens (owner)");
     this.migratePackColumns();
     this.migrateShareColumns();
   }
@@ -756,6 +771,37 @@ export class RegistryDb {
     this.db
       .prepare("UPDATE federation_peers SET status = ?, last_synced_at = ? WHERE id = ?")
       .run(status, lastSyncedAt ?? new Date().toISOString(), id);
+  }
+
+  /* ======================================================================== */
+  /* User Account & API Token Methods                                         */
+  /* ======================================================================== */
+
+  createUser(username: string, passwordHash: string, at: string): void {
+    this.db
+      .prepare("INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)")
+      .run(username.toLowerCase(), passwordHash, at);
+  }
+
+  getUser(username: string): { username: string; password_hash: string; created_at: string } | undefined {
+    return this.db
+      .prepare("SELECT * FROM users WHERE username = ?")
+      .get(username.toLowerCase()) as unknown as
+      | { username: string; password_hash: string; created_at: string }
+      | undefined;
+  }
+
+  issueToken(token: string, owner: string, at: string): void {
+    this.db
+      .prepare("INSERT INTO api_tokens (token, owner, created_at) VALUES (?, ?, ?)")
+      .run(token, owner.toLowerCase(), at);
+  }
+
+  getOwnerByToken(token: string): string | undefined {
+    const row = this.db
+      .prepare("SELECT owner FROM api_tokens WHERE token = ?")
+      .get(token) as unknown as { owner: string } | undefined;
+    return row?.owner;
   }
 }
 

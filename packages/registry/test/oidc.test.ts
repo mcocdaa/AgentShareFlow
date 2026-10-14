@@ -143,4 +143,60 @@ describe("OIDC session as registry identity", () => {
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ owner: "bob" });
   });
+
+  it("supports /api/v1/auth/register, /api/v1/auth/login, and /api/v1/me Bearer token symmetry without OIDC", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agentshare-auth-"));
+    tempDirs.push(dir);
+    setEnv({ AGENTSHARE_TOKENS: "envtok:envowner" });
+    const app = createApp({ dataDir: dir });
+
+    // Unauthenticated /api/v1/me returns 401
+    const unauthMe = await app.request("/api/v1/me");
+    expect(unauthMe.status).toBe(401);
+
+    // Register a new user
+    const regRes = await app.request("/api/v1/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "carol", password: "secretpassword" }),
+    });
+    expect(regRes.status).toBe(201);
+    const regBody = (await regRes.json()) as { ok: boolean; owner: string; token: string };
+    expect(regBody.ok).toBe(true);
+    expect(regBody.owner).toBe("carol");
+    expect(regBody.token).toMatch(/^as_[0-9a-f]{48}$/);
+
+    // /api/v1/me with registered Bearer token resolves to carol
+    const meRes = await app.request("/api/v1/me", {
+      headers: { authorization: `Bearer ${regBody.token}` },
+    });
+    expect(meRes.status).toBe(200);
+    expect(await meRes.json()).toEqual({ owner: "carol" });
+
+    // /api/v1/orgs works with the registered Bearer token
+    const orgsRes = await app.request("/api/v1/orgs", {
+      headers: { authorization: `Bearer ${regBody.token}` },
+    });
+    expect(orgsRes.status).toBe(200);
+    expect(await orgsRes.json()).toEqual({ organizations: [] });
+
+    // Login with the registered user issues a valid Bearer token
+    const loginRes = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "carol", password: "secretpassword" }),
+    });
+    expect(loginRes.status).toBe(200);
+    const loginBody = (await loginRes.json()) as { ok: boolean; owner: string; token: string };
+    expect(loginBody.owner).toBe("carol");
+    expect(loginBody.token).toMatch(/^as_[0-9a-f]{48}$/);
+
+    // Invalid password returns 401
+    const badLogin = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "carol", password: "wrong" }),
+    });
+    expect(badLogin.status).toBe(401);
+  });
 });

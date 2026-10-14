@@ -1,11 +1,28 @@
 import React, { useEffect, useState } from "react";
-import { type PackDetail, fetchPackReadme, getPack, toggleStar } from "./api.js";
+import {
+  type PackDetail,
+  type SessionInfo,
+  fetchPackReadme,
+  getPack,
+  getStoredToken,
+  toggleStar,
+} from "./api.js";
 import { InstallCommand, ModeBadge } from "./components.js";
 import { DependencyTopology } from "./DependencyTopology.js";
 import { MarkdownView } from "./MarkdownView.js";
 import { PlaygroundView } from "./PlaygroundView.js";
 
-export function PackDetailPage({ owner, name }: { owner: string; name: string }) {
+export function PackDetailPage({
+  owner,
+  name,
+  session,
+  onRequireAuth,
+}: {
+  owner: string;
+  name: string;
+  session?: SessionInfo | null;
+  onRequireAuth?: () => void;
+}) {
   const [detail, setDetail] = useState<PackDetail | null>(null);
   const [readme, setReadme] = useState<string | null>(null);
   const [loadingReadme, setLoadingReadme] = useState(false);
@@ -31,10 +48,16 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
         }
       })
       .catch((err: Error) => setError(err.message));
-  }, [owner, name]);
+  }, [owner, name, session?.owner]);
 
   const onToggleStar = async () => {
     if (!detail || starring) return;
+    if (!session?.owner && !getStoredToken()) {
+      if (onRequireAuth) {
+        onRequireAuth();
+      }
+      return;
+    }
     setStarring(true);
     try {
       const res = await toggleStar(owner, name, detail.starred === true);
@@ -44,7 +67,12 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
         stars: res.stars,
       });
     } catch (err) {
-      alert(`Star failed: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unauthorized|401/i.test(msg) && onRequireAuth) {
+        onRequireAuth();
+      } else {
+        alert(`Star failed: ${msg}`);
+      }
     } finally {
       setStarring(false);
     }
@@ -184,7 +212,7 @@ export function PackDetailPage({ owner, name }: { owner: string; name: string })
 
       {/* Tab 3: Live Interactive Playground */}
       {activeSubTab === "playground" && (
-        <PlaygroundView detail={detail} />
+        <PlaygroundView detail={detail} session={session} onRequireAuth={onRequireAuth} />
       )}
 
       {/* Tab 4: Manifest & Security Details */}

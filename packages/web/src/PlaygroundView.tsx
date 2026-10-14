@@ -1,7 +1,21 @@
 import React, { useState } from "react";
-import { type PackDetail, type PlaygroundResult, runPackPlayground } from "./api.js";
+import {
+  type PackDetail,
+  type PlaygroundResult,
+  type SessionInfo,
+  getStoredToken,
+  runPackPlayground,
+} from "./api.js";
 
-export function PlaygroundView({ detail }: { detail: PackDetail }) {
+export function PlaygroundView({
+  detail,
+  session,
+  onRequireAuth,
+}: {
+  detail: PackDetail;
+  session?: SessionInfo | null;
+  onRequireAuth?: () => void;
+}) {
   const defaultPrompt =
     detail.mode === "runtime"
       ? JSON.stringify({ action: "execute", query: "Hello from AgentShare Playground" }, null, 2)
@@ -13,7 +27,17 @@ export function PlaygroundView({ detail }: { detail: PackDetail }) {
   const [error, setError] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(true);
 
+  const isAuthenticated = Boolean(session?.owner || getStoredToken());
+
   const handleRun = async () => {
+    if (!session?.owner && !getStoredToken()) {
+      if (onRequireAuth) {
+        onRequireAuth();
+      } else {
+        setError("Authentication required: please sign in or set a Bearer token first.");
+      }
+      return;
+    }
     setRunning(true);
     setError(null);
     try {
@@ -26,7 +50,11 @@ export function PlaygroundView({ detail }: { detail: PackDetail }) {
       const res = await runPackPlayground(detail.owner, detail.name, detail.version, parsedInput);
       setResult(res);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/unauthorized|401/i.test(msg) && onRequireAuth) {
+        onRequireAuth();
+      }
+      setError(msg);
     } finally {
       setRunning(false);
     }
@@ -102,6 +130,46 @@ export function PlaygroundView({ detail }: { detail: PackDetail }) {
             </button>
           </div>
         </div>
+
+        {!isAuthenticated && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "0.75rem",
+              backgroundColor: "rgba(110, 168, 254, 0.1)",
+              border: "1px solid rgba(110, 168, 254, 0.3)",
+              borderRadius: "8px",
+              padding: "0.75rem 1rem",
+              marginBottom: "1rem",
+              fontSize: "0.85rem",
+              color: "#c0caf5",
+            }}
+          >
+            <span>
+              🔒 Sandbox execution requires a connected identity or Bearer token (Human via UI / AI via API).
+            </span>
+            {onRequireAuth && (
+              <button
+                type="button"
+                onClick={onRequireAuth}
+                style={{
+                  padding: "5px 12px",
+                  fontSize: "0.8rem",
+                  borderRadius: "6px",
+                  backgroundColor: "rgba(110, 168, 254, 0.2)",
+                  border: "1px solid #6ea8fe",
+                  color: "#6ea8fe",
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Sign In / Set Token
+              </button>
+            )}
+          </div>
+        )}
 
         <div style={{ marginBottom: "1rem" }}>
           <label style={{ display: "block", fontSize: "0.85rem", color: "#8892b0", marginBottom: "0.5rem" }}>

@@ -4,6 +4,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { RegistryDb } from "./db.js";
+import { createAuthRoutes } from "./auth.js";
 import { createOidcRoutes, oidcConfigFromEnv, oidcMiddleware } from "./oidc.js";
 import { createPackRoutes } from "./pack-routes.js";
 import { orgRoutes } from "./org-routes.js";
@@ -36,6 +37,10 @@ export function createApp({
 
   const app = new Hono();
   app.use("*", cors());
+  app.use("*", async (c, next) => {
+    c.set("db" as never, db as never);
+    await next();
+  });
 
   const oidc = oidcConfigFromEnv();
   if (oidc !== undefined) app.use("*", oidcMiddleware(oidc));
@@ -56,7 +61,8 @@ export function createApp({
 
   app.get("/healthz", (c) => c.json({ ok: true, packs: db.count() }));
 
-  if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc));
+  app.route("/api/v1", createAuthRoutes(db, oidc));
+  if (oidc !== undefined) app.route("/api/v1", createOidcRoutes(oidc, db));
   app.route("/api/v1", orgRoutes(db, oidc));
 
   app.route(
