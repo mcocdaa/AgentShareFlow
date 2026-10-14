@@ -112,8 +112,44 @@ export interface ShareSubmission {
   decidedAt?: string;
 }
 
+export const TOKEN_STORAGE_KEY = "agentshare_token";
+
+export function getStoredToken(): string | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const tok =
+      localStorage.getItem(TOKEN_STORAGE_KEY) ?? localStorage.getItem("agentshare.token");
+    return tok && tok.trim().length > 0 ? tok.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredToken(token: string | null): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (token && token.trim().length > 0) {
+      const clean = token.trim();
+      localStorage.setItem(TOKEN_STORAGE_KEY, clean);
+      localStorage.setItem("agentshare.token", clean);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem("agentshare.token");
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function get<T>(pathname: string): Promise<T> {
-  const res = await fetch(pathname);
+  const res = await fetch(pathname, {
+    headers: { ...authHeaders() },
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -136,7 +172,7 @@ export function getShare(id: string): Promise<ShareMeta> {
 export async function postSubmission(id: string, body: SubmissionInput): Promise<ShareSubmission> {
   const res = await fetch(`/api/v1/shares/${encodeURIComponent(id)}/submissions`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify({ spec: "submission/v0", ...body }),
   });
   if (!res.ok) {
@@ -152,7 +188,7 @@ export async function postShareMessage(
 ): Promise<{ sessionId: string; message: ChatMessage }> {
   const res = await fetch(`/api/v1/shares/${encodeURIComponent(id)}/messages`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -176,10 +212,70 @@ export interface SessionInfo {
 }
 
 export async function getSession(): Promise<SessionInfo | null> {
-  const res = await fetch("/api/v1/me");
+  const res = await fetch("/api/v1/me", {
+    headers: { ...authHeaders() },
+  });
   if (!res.ok) return null;
   const body = (await res.json().catch(() => null)) as SessionInfo | null;
   return body !== null && typeof body.owner === "string" ? body : null;
+}
+
+export interface AuthResponse {
+  ok: boolean;
+  owner: string;
+  username: string;
+  token: string;
+}
+
+export async function loginOrRegister(
+  username: string,
+  password: string,
+  mode: "login" | "register",
+): Promise<AuthResponse> {
+  const endpoint = mode === "register" ? "/api/v1/auth/register" : "/api/v1/auth/login";
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? `Authentication failed (HTTP ${res.status})`);
+  }
+  const data = (await res.json()) as AuthResponse;
+  if (data.token) {
+    setStoredToken(data.token);
+  }
+  return data;
+}
+
+export interface OrgInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface UserOrgMembership {
+  org: OrgInfo;
+  role: "owner" | "admin" | "member" | "viewer";
+}
+
+export interface FederationPeer {
+  id: string;
+  name: string;
+  url: string;
+  status: "active" | "unreachable" | "pending";
+  created_at: string;
+  last_synced_at: string | null;
+}
+
+export function listOrgs(): Promise<{ organizations: UserOrgMembership[] }> {
+  return get("/api/v1/orgs");
+}
+
+export function listFederationPeers(): Promise<{ peers: FederationPeer[] }> {
+  return get("/api/v1/federation/peers");
 }
 
 export async function publishPack(
@@ -191,8 +287,11 @@ export async function publishPack(
   const form = new FormData();
   form.set("manifest", JSON.stringify(manifest));
   form.set("tarball", new Blob([new Uint8Array(bytes)], { type: "application/gzip" }), "pack.tgz");
-  const headers: Record<string, string> = { "x-pack-digest": digest };
-  if (token !== undefined && token.length > 0) headers.authorization = `Bearer ${token}`;
+  const headers: Record<string, string> = {
+    ...authHeaders(),
+    "x-pack-digest": digest,
+  };
+  if (token !== undefined && token.length > 0) headers.Authorization = `Bearer ${token}`;
   const res = await fetch("/api/v1/agents", { method: "POST", headers, body: form });
   if (!res.ok) {
     const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
@@ -210,6 +309,7 @@ export async function toggleStar(
     `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/star`,
     {
       method: starred ? "DELETE" : "POST",
+      headers: { ...authHeaders() },
     },
   );
   if (!res.ok) {
@@ -226,6 +326,9 @@ export async function fetchPackReadme(
 ): Promise<string | null> {
   const res = await fetch(
     `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/readme`,
+    {
+      headers: { ...authHeaders() },
+    },
   );
   if (!res.ok) return null;
   const payload = (await res.json().catch(() => ({}))) as { readme?: string | null };
@@ -252,7 +355,10 @@ export async function runPackPlayground(
     `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/playground`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(),
+      },
       body: JSON.stringify({ input }),
     },
   );

@@ -83,3 +83,121 @@ describe("readTarEntry", () => {
     expect(new TextDecoder().decode(found)).toBe("# Deep Skill\n");
   });
 });
+
+import {
+  authHeaders,
+  getSession,
+  getStoredToken,
+  listFederationPeers,
+  listOrgs,
+  loginOrRegister,
+  runPackPlayground,
+  setStoredToken,
+  toggleStar,
+} from "../src/api.js";
+
+describe("WebUI API token symmetry helpers", () => {
+  it("stores and attaches Bearer tokens to getSession, toggleStar, runPackPlayground, listOrgs, and listFederationPeers", async () => {
+    const store = new Map<string, string>();
+    const origStorage = globalThis.localStorage;
+    const origFetch = globalThis.fetch;
+
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => store.set(k, v),
+        removeItem: (k: string) => store.delete(k),
+      },
+    });
+
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url === "/api/v1/auth/login") {
+        return new Response(
+          JSON.stringify({ ok: true, owner: "alice", username: "alice", token: "as_testtoken123" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/v1/me") {
+        return new Response(JSON.stringify({ owner: "alice" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/star")) {
+        return new Response(JSON.stringify({ starred: true, stars: 5 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/playground")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            output: "done",
+            logs: [],
+            executionTimeMs: 12,
+            exitCode: 0,
+            sandboxed: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/v1/orgs") {
+        return new Response(JSON.stringify({ organizations: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/v1/federation/peers") {
+        return new Response(JSON.stringify({ peers: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      expect(getStoredToken()).toBeNull();
+      expect(authHeaders()).toEqual({});
+
+      const authRes = await loginOrRegister("alice", "pass1234", "login");
+      expect(authRes.token).toBe("as_testtoken123");
+      expect(getStoredToken()).toBe("as_testtoken123");
+      expect(authHeaders()).toEqual({ Authorization: "Bearer as_testtoken123" });
+
+      const session = await getSession();
+      expect(session).toEqual({ owner: "alice" });
+
+      await toggleStar("alice", "demo", false);
+      await runPackPlayground("alice", "demo", "0.1.0", { query: "hi" });
+      await listOrgs();
+      await listFederationPeers();
+
+      const meCall = calls.find((c) => c.url === "/api/v1/me");
+      expect((meCall?.init?.headers as Record<string, string>)?.Authorization).toBe(
+        "Bearer as_testtoken123",
+      );
+
+      const starCall = calls.find((c) => c.url.endsWith("/star"));
+      expect((starCall?.init?.headers as Record<string, string>)?.Authorization).toBe(
+        "Bearer as_testtoken123",
+      );
+
+      const playCall = calls.find((c) => c.url.endsWith("/playground"));
+      expect((playCall?.init?.headers as Record<string, string>)?.Authorization).toBe(
+        "Bearer as_testtoken123",
+      );
+
+      setStoredToken(null);
+      expect(getStoredToken()).toBeNull();
+    } finally {
+      globalThis.fetch = origFetch;
+      Object.defineProperty(globalThis, "localStorage", { configurable: true, value: origStorage });
+    }
+  });
+});

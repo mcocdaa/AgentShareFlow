@@ -1,9 +1,15 @@
 import { useEffect, useState, type DragEvent, type FormEvent } from "react";
-import { getSession, publishPack, type PublishResult, type SessionInfo } from "./api.js";
+import {
+  getSession,
+  getStoredToken,
+  publishPack,
+  setStoredToken,
+  type PublishResult,
+  type SessionInfo,
+} from "./api.js";
 import { ModeBadge } from "./components.js";
 import { extractManifestFromTarball } from "./tar.js";
 
-const TOKEN_KEY = "agentshare.token";
 const CLI = "npx @agentshare/cli";
 
 interface PackPreview {
@@ -80,7 +86,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function PublishPage() {
-  const [token, setToken] = useState(() => window.localStorage.getItem(TOKEN_KEY) ?? "");
+  const [token, setToken] = useState(() => getStoredToken() ?? "");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [file, setFile] = useState<SelectedFile | null>(null);
@@ -140,7 +146,7 @@ export function PublishPage() {
     setError(null);
     setResult(null);
     try {
-      if (token.trim().length > 0) window.localStorage.setItem(TOKEN_KEY, token.trim());
+      if (token.trim().length > 0) setStoredToken(token.trim());
       setResult(await publishPack(token.trim() || undefined, manifest, bytes, digest));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
