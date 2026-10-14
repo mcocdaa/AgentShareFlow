@@ -28,11 +28,85 @@ import type { OidcConfig } from "./oidc.js";
 import type { HubStream, ShareHub } from "./share-hub.js";
 
 const WINDOW_MS = 60_000;
+const MAX_HITS_ENTRIES = 5000;
 const SHARE_LIMIT_PER_WINDOW = 30;
 const SESSION_LIMIT_PER_WINDOW = 10;
 const SUBMISSION_LIMIT_PER_WINDOW = 10;
 const A2A_DEFAULT_REPLY_TIMEOUT_MS = 120_000;
 const A2A_POLL_MS = 100;
+
+export function isPrivateOrBlockedHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host) return true;
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "::1" ||
+    host === "::" ||
+    host === "0:0:0:0:0:0:0:1" ||
+    host === "0:0:0:0:0:0:0:0"
+  ) {
+    return true;
+  }
+
+  if (/^f[cd][0-9a-f]{0,2}:/i.test(host) || /^fe[89ab][0-9a-f]{0,1}:/i.test(host)) {
+    return true;
+  }
+
+  if (host.startsWith("::ffff:")) {
+    const tail = host.slice("::ffff:".length);
+    if (isPrivateOrBlockedHost(tail)) return true;
+    const hexMatch = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(tail);
+    if (hexMatch) {
+      const hi = Number.parseInt(hexMatch[1]!, 16);
+      const lo = Number.parseInt(hexMatch[2]!, 16);
+      const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      if (isPrivateOrBlockedHost(ipv4)) return true;
+    }
+  }
+
+  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4Match) {
+    const a = Number(ipv4Match[1]);
+    const b = Number(ipv4Match[2]);
+    const c = Number(ipv4Match[3]);
+    const d = Number(ipv4Match[4]);
+    if (a > 255 || b > 255 || c > 255 || d > 255) return true;
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+
+  return false;
+}
+
+export function validateExternalEndpointUrl(
+  rawUrl: string,
+): { ok: true; url: URL } | { ok: false; error: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, error: "invalid endpoint url" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, error: "endpoint url must use http or https" };
+  }
+  if (process.env.ALLOW_PRIVATE_ENDPOINTS === "1") {
+    return { ok: true, url: parsed };
+  }
+  if (isPrivateOrBlockedHost(parsed.hostname)) {
+    return {
+      ok: false,
+      error: "private, loopback, or link-local endpoint URLs are not allowed",
+    };
+  }
+  return { ok: true, url: parsed };
+}
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -205,6 +279,17 @@ export function createShareRoutes({
 
   const allow = (key: string, limit: number): boolean => {
     const now = Date.now();
+    if (hits.size > MAX_HITS_ENTRIES) {
+      for (const [k, timestamps] of hits.entries()) {
+        const active = timestamps.filter((at) => now - at < WINDOW_MS);
+        if (active.length === 0) hits.delete(k);
+        else hits.set(k, active);
+      }
+      if (hits.size > MAX_HITS_ENTRIES) {
+        const oldestKey = hits.keys().next().value;
+        if (oldestKey !== undefined) hits.delete(oldestKey);
+      }
+    }
     const recent = (hits.get(key) ?? []).filter((at) => now - at < WINDOW_MS);
     if (recent.length >= limit) {
       hits.set(key, recent);
@@ -228,8 +313,13 @@ export function createShareRoutes({
       hub.publish(share.id, "done", { sessionId }, sessionId);
     };
     try {
+      const targetEndpoint = share.endpoint_url ?? "";
+      const urlCheck = validateExternalEndpointUrl(targetEndpoint);
+      if (!urlCheck.ok) {
+        throw new Error(urlCheck.error);
+      }
       const session = db.getShareSession(sessionId);
-      const result = await sendA2AMessage(share.endpoint_url ?? "", content, {
+      const result = await sendA2AMessage(targetEndpoint, content, {
         ...session?.a2a_context_id == null ? {} : { contextId: session.a2a_context_id },
       });
       if (result.contextId !== undefined) db.setShareSessionA2aContext(sessionId, result.contextId);
@@ -278,8 +368,16 @@ export function createShareRoutes({
       if (cardUrl === "") {
         return c.json({ error: "agentCardUrl is required for endpoint shares" }, 400);
       }
+      const cardUrlCheck = validateExternalEndpointUrl(cardUrl);
+      if (!cardUrlCheck.ok) {
+        return c.json({ error: cardUrlCheck.error }, 400);
+      }
       try {
         const card = await fetchAgentCard(cardUrl);
+        const endpointCheck = validateExternalEndpointUrl(card.url);
+        if (!endpointCheck.ok) {
+          return c.json({ error: endpointCheck.error }, 400);
+        }
         endpointUrl = card.url;
         agentCard = JSON.stringify(card);
       } catch (error) {
@@ -419,21 +517,26 @@ export function createShareRoutes({
       if (!session || session.share_id !== share.id) {
         return c.json({ error: "unknown sessionId for this share" }, 400);
       }
-    } else {
+    }
+
+    if (!allow(`share:${share.id}`, SHARE_LIMIT_PER_WINDOW)) {
+      return c.json({ error: "rate limit exceeded" }, 429);
+    }
+    if (sessionId && !allow(`session:${sessionId}`, SESSION_LIMIT_PER_WINDOW)) {
+      return c.json({ error: "rate limit exceeded" }, 429);
+    }
+
+    if (!sessionId) {
       sessionId = randomBytes(12).toString("hex");
+      if (!allow(`session:${sessionId}`, SESSION_LIMIT_PER_WINDOW)) {
+        return c.json({ error: "rate limit exceeded" }, 429);
+      }
       db.insertShareSession({
         id: sessionId,
         share_id: share.id,
         visitor_name: visitorName ?? null,
         created_at: new Date().toISOString(),
       });
-    }
-
-    if (!allow(`share:${share.id}`, SHARE_LIMIT_PER_WINDOW)) {
-      return c.json({ error: "rate limit exceeded" }, 429);
-    }
-    if (!allow(`session:${sessionId}`, SESSION_LIMIT_PER_WINDOW)) {
-      return c.json({ error: "rate limit exceeded" }, 429);
     }
 
     const message = db.insertShareMessage({
@@ -615,23 +718,24 @@ export function createShareRoutes({
     let session = requestedContext === undefined
       ? undefined
       : db.findShareSessionByA2aContext(share.id, requestedContext);
+
+    const candidateSessionId = session?.id ?? randomBytes(12).toString("hex");
+    if (!allow(`share:${share.id}`, SHARE_LIMIT_PER_WINDOW)) return rpcError(-32029, "rate limit exceeded");
+    if (!allow(`session:${candidateSessionId}`, SESSION_LIMIT_PER_WINDOW)) {
+      return rpcError(-32029, "rate limit exceeded");
+    }
+
     if (session === undefined) {
-      const sessionId = randomBytes(12).toString("hex");
       db.insertShareSession({
-        id: sessionId,
+        id: candidateSessionId,
         share_id: share.id,
         visitor_name: null,
         created_at: new Date().toISOString(),
       });
-      db.setShareSessionA2aContext(sessionId, requestedContext ?? randomBytes(12).toString("hex"));
-      session = db.getShareSession(sessionId);
+      db.setShareSessionA2aContext(candidateSessionId, requestedContext ?? randomBytes(12).toString("hex"));
+      session = db.getShareSession(candidateSessionId);
     }
     if (session === undefined) return rpcError(-32000, "failed to create a session");
-
-    if (!allow(`share:${share.id}`, SHARE_LIMIT_PER_WINDOW)) return rpcError(-32029, "rate limit exceeded");
-    if (!allow(`session:${session.id}`, SESSION_LIMIT_PER_WINDOW)) {
-      return rpcError(-32029, "rate limit exceeded");
-    }
 
     const visitorMessage = db.insertShareMessage({
       sessionId: session.id,

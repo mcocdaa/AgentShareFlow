@@ -8,6 +8,7 @@ import {
 import type { RegistryDb } from "./db.js";
 import { resolveOwner } from "./identity.js";
 import type { OidcConfig } from "./oidc.js";
+import { validateExternalEndpointUrl } from "./share-routes.js";
 
 export interface FederationRoutesOptions {
   db: RegistryDb;
@@ -61,13 +62,12 @@ export function federationRoutes({
       return c.json({ error: "url is required" }, 400);
     }
 
-    try {
-      new URL(body.url);
-    } catch {
-      return c.json({ error: "invalid peer url" }, 400);
+    const urlCheck = validateExternalEndpointUrl(body.url);
+    if (!urlCheck.ok) {
+      return c.json({ error: urlCheck.error }, 400);
     }
 
-    const peerName = body.name?.trim() || new URL(body.url).hostname;
+    const peerName = body.name?.trim() || urlCheck.url.hostname;
 
     // Optional verification of the remote peer's well-known manifest
     let status: "active" | "unreachable" = "active";
@@ -128,15 +128,18 @@ export function federationRoutes({
       });
     }
 
-    // Query active federation peers
-    const peers = db.listPeers().map((p) => ({
-      id: p.id,
-      name: p.name,
-      url: p.url,
-      status: p.status,
-      createdAt: p.created_at,
-      lastSyncedAt: p.last_synced_at,
-    }));
+    // Query active federation peers (filtering out any blocked private/loopback URLs)
+    const peers = db
+      .listPeers()
+      .filter((p) => validateExternalEndpointUrl(p.url).ok)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        url: p.url,
+        status: p.status,
+        createdAt: p.created_at,
+        lastSyncedAt: p.last_synced_at,
+      }));
     const remoteItems = await queryFederatedPeers(peers, q, fetchImpl, 2500);
 
     // Combine and sort by stars desc, then downloads desc
@@ -162,11 +165,21 @@ export function federationRoutes({
       return c.json({ error: "peer registry not found" }, 404);
     }
 
+    const peerCheck = validateExternalEndpointUrl(peer.url);
+    if (!peerCheck.ok) {
+      return c.json({ error: peerCheck.error }, 400);
+    }
+
     const base = peer.url.endsWith("/") ? peer.url : `${peer.url}/`;
     const remoteDownloadUrl = new URL(
       `api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/download`,
       base,
     ).toString();
+
+    const downloadCheck = validateExternalEndpointUrl(remoteDownloadUrl);
+    if (!downloadCheck.ok) {
+      return c.json({ error: downloadCheck.error }, 400);
+    }
 
     try {
       const res = await fetchImpl(remoteDownloadUrl);

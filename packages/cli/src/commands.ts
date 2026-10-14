@@ -12,6 +12,7 @@ import {
   type Harness,
   type PackMode,
   formatIssues,
+  isSafeRelativePath,
   parseManifest,
   previewHandoffImport,
   importHandoff,
@@ -771,16 +772,35 @@ export async function updateCommand(
         const extracted = path.join(tmp, "pack");
         await extractPackTarball(tarball, extracted);
         await scanOrReport(extracted, options.allowRisky === true, "update");
+        const extractedRoot = path.resolve(extracted);
         const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
+        for (const root of roots) {
+          if (!isSafeRelativePath(root)) {
+            throw new Error(`unsafe skill path in manifest: ${root}`);
+          }
+          const resolvedRoot = root === "." ? extractedRoot : path.resolve(extractedRoot, root);
+          if (resolvedRoot !== extractedRoot && !resolvedRoot.startsWith(`${extractedRoot}${path.sep}`)) {
+            throw new Error(`unsafe skill path escapes pack root: ${root}`);
+          }
+        }
         const wanted = path.basename(entry.dest);
         const rel = roots.find((root) =>
           (root === "." ? detail.manifest.name : path.basename(root)) === wanted,
         );
         if (rel === undefined) throw new Error(`${entry.owner}/${entry.name} no longer provides ${wanted}`);
-        const source = rel === "." ? extracted : path.join(extracted, rel);
+        const source = rel === "." ? extractedRoot : path.resolve(extractedRoot, rel);
+        if (source !== extractedRoot && !source.startsWith(`${extractedRoot}${path.sep}`)) {
+          throw new Error(`unsafe skill path escapes pack root: ${rel}`);
+        }
+        if (!fs.existsSync(source)) throw new Error(`pack does not contain skill path: ${rel}`);
+        const realExtracted = fs.realpathSync(extractedRoot);
+        const realSource = fs.realpathSync(source);
+        if (realSource !== realExtracted && !realSource.startsWith(`${realExtracted}${path.sep}`)) {
+          throw new Error(`skill path symlink escapes pack root: ${rel}`);
+        }
         await fsp.rm(entry.dest, { recursive: true, force: true });
         await fsp.mkdir(path.dirname(entry.dest), { recursive: true });
-        await fsp.cp(source, entry.dest, { recursive: true });
+        await fsp.cp(realSource, entry.dest, { recursive: true });
       } finally {
         await fsp.rm(tmp, { recursive: true, force: true });
       }
@@ -1040,27 +1060,47 @@ export async function installPack(
       );
     }
 
+    const extractedRoot = path.resolve(extracted);
     const roots = detail.manifest.skills.length > 0 ? detail.manifest.skills : ["."];
     const targets = resolveTargets(options.target);
     const installed: Array<{ target: Harness; dest: string }> = [];
     const skipped: string[] = [];
 
     for (const harness of targets) {
-      const baseDir = options.dir
-        ? path.resolve(options.dir)
-        : resolveSkillsDir(harness, { project: options.project });
+      const baseDir = path.resolve(
+        options.dir
+          ? path.resolve(options.dir)
+          : resolveSkillsDir(harness, { project: options.project }),
+      );
       for (const rel of roots) {
-        const source = rel === "." ? extracted : path.join(extracted, rel);
+        if (!isSafeRelativePath(rel)) {
+          throw new Error(`unsafe skill path in manifest: ${rel}`);
+        }
+        const source = rel === "." ? extractedRoot : path.resolve(extractedRoot, rel);
+        if (source !== extractedRoot && !source.startsWith(`${extractedRoot}${path.sep}`)) {
+          throw new Error(`unsafe skill path escapes pack root: ${rel}`);
+        }
         if (!fs.existsSync(source)) throw new Error(`pack does not contain skill path: ${rel}`);
+        const realExtracted = fs.realpathSync(extractedRoot);
+        const realSource = fs.realpathSync(source);
+        if (realSource !== realExtracted && !realSource.startsWith(`${realExtracted}${path.sep}`)) {
+          throw new Error(`skill path symlink escapes pack root: ${rel}`);
+        }
         const skillName = rel === "." ? detail.manifest.name : path.basename(rel);
-        const dest = path.join(baseDir, skillName);
+        if (!skillName || skillName === "." || skillName === ".." || skillName.includes("/") || skillName.includes("\\")) {
+          throw new Error(`invalid skill destination name: ${skillName}`);
+        }
+        const dest = path.resolve(baseDir, skillName);
+        if (!dest.startsWith(`${baseDir}${path.sep}`)) {
+          throw new Error(`install destination escapes target directory: ${dest}`);
+        }
         if (fs.existsSync(dest) && !options.force) {
           skipped.push(dest);
           continue;
         }
         await fsp.rm(dest, { recursive: true, force: true });
         await fsp.mkdir(baseDir, { recursive: true });
-        await fsp.cp(source, dest, { recursive: true });
+        await fsp.cp(realSource, dest, { recursive: true });
         installed.push({ target: harness, dest });
       }
     }

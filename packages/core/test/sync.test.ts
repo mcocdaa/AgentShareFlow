@@ -89,4 +89,33 @@ describe("sync", () => {
     expect(formatted).toContain("bob/drifted-skill");
     expect(formatted).toContain("carol/missing-skill");
   });
+
+  it("detects content modification drift across harness targets using SHA-256 hashing", async () => {
+    const workspace = await createTempDir();
+    const sourceSkillDir = path.join(workspace, ".agents", "skills", "code-review");
+    const claudeSkillDir = path.join(workspace, ".claude", "skills", "code-review");
+
+    await fs.mkdir(sourceSkillDir, { recursive: true });
+    await fs.mkdir(claudeSkillDir, { recursive: true });
+    await fs.writeFile(path.join(sourceSkillDir, "SKILL.md"), "# Original Skill\n", "utf8");
+    await fs.writeFile(path.join(claudeSkillDir, "SKILL.md"), "# Modified Locally in Claude\n", "utf8");
+
+    let lock = emptyLockfile();
+    lock = upsertInstall(lock, {
+      owner: "alice",
+      name: "code-review",
+      version: "1.0.0",
+      digest: "abc",
+      mode: "offline",
+      target: "claude",
+      scope: "project",
+      dest: claudeSkillDir,
+      installedAt: new Date().toISOString(),
+    });
+
+    const report = await checkSyncStatus(lock, workspace);
+    expect(report.drifted).toBe(1);
+    expect(report.entries[0]?.status).toBe("drifted");
+    expect(report.entries[0]?.reason).toMatch(/SHA-256 hash mismatch/i);
+  });
 });

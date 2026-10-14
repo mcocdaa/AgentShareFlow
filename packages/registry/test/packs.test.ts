@@ -293,4 +293,117 @@ describe("registry enterprise policy hook", () => {
       delete process.env.AGENTS_POLICY_FILE;
     }
   });
+
+  it("aggregates download counts across versions and rejects manifest spoofing", async () => {
+    const app = await makeApp("token");
+    const auth = { authorization: "Bearer tok" };
+
+    const v1 = await buildPack("multi-ver-pack", "0.1.0");
+    expect((await postPack(app, v1, auth)).status).toBe(201);
+
+    // Download v0.1.0 twice
+    expect((await app.request("/api/v1/agents/starowner/multi-ver-pack/0.1.0/download")).status).toBe(200);
+    expect((await app.request("/api/v1/agents/starowner/multi-ver-pack/0.1.0/download")).status).toBe(200);
+
+    // Publish v0.2.0
+    const v2 = await buildPack("multi-ver-pack", "0.2.0");
+    expect((await postPack(app, v2, auth)).status).toBe(201);
+
+    // Search should still show 2 downloads (aggregated across versions), not reset to 0
+    const searchRes = await app.request("/api/v1/search?q=multi-ver-pack");
+    const searchBody = (await searchRes.json()) as { items: Array<{ name: string; version: string; downloads: number }> };
+    const found = searchBody.items.find((i) => i.name === "multi-ver-pack");
+    expect(found?.version).toBe("0.2.0");
+    expect(found?.downloads).toBe(2);
+
+    // Reject manifest spoofing where form manifest differs from tarball agent.json
+    const spoofedForm = new FormData();
+    spoofedForm.set(
+      "manifest",
+      JSON.stringify({
+        ...v2.manifest,
+        name: "different-name",
+        version: "0.3.0",
+      }),
+    );
+    spoofedForm.set("tarball", new Blob([v2.bytes], { type: "application/gzip" }), "pack.tgz");
+    const spoofRes = await app.request("/api/v1/agents", {
+      method: "POST",
+      headers: auth,
+      body: spoofedForm,
+    });
+    expect(spoofRes.status).toBe(400);
+    const spoofJson = (await spoofRes.json()) as { error: string };
+    expect(spoofJson.error).toMatch(/manifest mismatch/i);
+  });
+
+  it("blocks private/loopback share endpoint URLs and enforces rate limits before creating orphan sessions", async () => {
+    delete process.env.ALLOW_PRIVATE_ENDPOINTS;
+    const app = await makeApp("token");
+    const auth = { authorization: "Bearer tok" };
+
+    // 1. SSRF protection on endpoint share creation
+    const ssrfShare = await app.request("/api/v1/shares", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "SSRF Test",
+        mode: "endpoint",
+        agentCardUrl: "http://169.254.169.254/latest/meta-data/",
+      }),
+    });
+    expect(ssrfShare.status).toBe(400);
+    const ssrfBody = (await ssrfShare.json()) as { error: string };
+    expect(ssrfBody.error).toMatch(/link-local|private|loopback/i);
+
+    // 2. Create a tunnel share, bring it online, and verify rate limit triggers before creating new sessions
+    const shareRes = await app.request("/api/v1/shares", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Rate Limit Test",
+      }),
+    });
+    expect(shareRes.status).toBe(201);
+    const { id: shareId } = (await shareRes.json()) as { id: string };
+
+    // Connect tunnel SSE stream so hub.hasTunnel(shareId) is true
+    const tunnelRes = await app.request(`/api/v1/tunnel/${shareId}/events`, {
+      headers: auth,
+    });
+    expect(tunnelRes.status).toBe(200);
+    const reader = tunnelRes.body?.getReader();
+    await reader?.read();
+
+    try {
+      // Create 3 sessions and send 10 messages each to reach SHARE_LIMIT_PER_WINDOW (30)
+      for (let s = 0; s < 3; s++) {
+        const firstMsg = await app.request(`/api/v1/shares/${shareId}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content: `init ${s}` }),
+        });
+        expect(firstMsg.status).toBe(201);
+        const { sessionId } = (await firstMsg.json()) as { sessionId: string };
+        for (let i = 1; i < 10; i++) {
+          const msgRes = await app.request(`/api/v1/shares/${shareId}/messages`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId, content: `msg ${s}-${i}` }),
+          });
+          expect(msgRes.status).toBe(201);
+        }
+      }
+
+      // 31st request without sessionId is rate-limited (429) before inserting a new session
+      const rateLimited = await app.request(`/api/v1/shares/${shareId}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "should be blocked before session insert" }),
+      });
+      expect(rateLimited.status).toBe(429);
+    } finally {
+      await reader?.cancel();
+    }
+  });
 });

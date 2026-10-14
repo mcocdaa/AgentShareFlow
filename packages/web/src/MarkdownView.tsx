@@ -43,6 +43,18 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
   );
 }
 
+function isSafeLinkHref(rawHref: string): boolean {
+  const trimmed = rawHref.trim();
+  const normalized = trimmed.replace(/[\u0000-\u001F\u007F\s]+/g, "").toLowerCase();
+  return (
+    normalized.startsWith("http://") ||
+    normalized.startsWith("https://") ||
+    normalized.startsWith("mailto:") ||
+    normalized.startsWith("#") ||
+    (normalized.startsWith("/") && !normalized.startsWith("//"))
+  );
+}
+
 function renderInline(text: string): React.ReactNode[] {
   // Regex parsing for inline elements: `code`, **bold**, *italic*, [link](url)
   const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
@@ -64,9 +76,14 @@ function renderInline(text: string): React.ReactNode[] {
     }
     const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part);
     if (linkMatch) {
+      const label = linkMatch[1]!;
+      const rawUrl = linkMatch[2]!.trim();
+      if (!isSafeLinkHref(rawUrl)) {
+        return <span key={i}>{label}</span>;
+      }
       return (
-        <a key={i} href={linkMatch[2]} target="_blank" rel="noreferrer" className="md-link">
-          {linkMatch[1]}
+        <a key={i} href={rawUrl} target="_blank" rel="noreferrer" className="md-link">
+          {label}
         </a>
       );
     }

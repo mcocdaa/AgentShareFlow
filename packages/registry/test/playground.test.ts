@@ -85,6 +85,7 @@ describe("Registry Playground Sandbox Endpoint", () => {
     const playRes = await app.request("/api/v1/agents/dev/runtime-calc/1.0.0/playground", {
       method: "POST",
       headers: {
+        authorization: "Bearer test-dev-token",
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -106,6 +107,39 @@ describe("Registry Playground Sandbox Endpoint", () => {
     expect(playBody.sandboxed).toBe(true);
     expect(playBody.output).toEqual({ sum: 42 });
     expect(playBody.logs.some((l) => l.includes("Calculated sum in sandbox"))).toBe(true);
+
+    // Rejects path traversal in entryScript
+    const traversalRes = await app.request("/api/v1/agents/dev/runtime-calc/1.0.0/playground", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-dev-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        input: {},
+        entryScript: "../../etc/passwd",
+      }),
+    });
+    expect(traversalRes.status).toBe(200);
+    const traversalBody = (await traversalRes.json()) as { ok: boolean; error?: string };
+    expect(traversalBody.ok).toBe(false);
+    expect(traversalBody.error).toMatch(/escapes pack directory/i);
+  });
+
+  it("returns 401 when unauthenticated and AGENTSHARE_TOKENS is configured", async () => {
+    const dataDir = await temporaryDirectory("agentshare-reg-play-401-");
+    process.env.AGENTSHARE_TOKENS = "tok_dev:dev";
+    try {
+      const app = createApp({ dataDir });
+      const res = await app.request("/api/v1/agents/dev/nonexistent/1.0.0/playground", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "test" }),
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      delete process.env.AGENTSHARE_TOKENS;
+    }
   });
 
   it("returns 404 for nonexistent pack or version", async () => {
@@ -114,7 +148,10 @@ describe("Registry Playground Sandbox Endpoint", () => {
 
     const res = await app.request("/api/v1/agents/dev/nonexistent/1.0.0/playground", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: "Bearer test-dev-token",
+        "content-type": "application/json",
+      },
       body: JSON.stringify({ input: "test" }),
     });
 

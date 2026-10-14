@@ -12,6 +12,21 @@ export const OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 export const PACK_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 export const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/;
 
+export function isSafeRelativePath(p: string): boolean {
+  return (
+    p.length > 0 &&
+    !p.startsWith("/") &&
+    !p.includes("\\") &&
+    !p.includes("\0") &&
+    !p.split("/").includes("..")
+  );
+}
+
+const safeRelativePath = () =>
+  z.string().min(1).refine(isSafeRelativePath, {
+    message: "must be a safe relative path without '..', leading '/', or backslashes",
+  });
+
 const urlString = () =>
   z.string().refine((value) => URL.canParse(value), { message: "must be a valid URL" });
 
@@ -25,7 +40,7 @@ export type AgentEndpoint = z.infer<typeof EndpointSchema>;
 export const RuntimeSchema = z
   .object({
     image: z.string().min(1).optional(),
-    dockerfile: z.string().min(1).optional(),
+    dockerfile: safeRelativePath().optional(),
     port: z.number().int().min(1).max(65535).optional(),
     protocol: z.enum(["mcp", "a2a"]).default("mcp"),
   })
@@ -37,6 +52,10 @@ export type AgentRuntime = z.infer<typeof RuntimeSchema>;
 export const AgentManifestSchema = z
   .object({
     spec: z.literal(PACK_SPEC),
+    owner: z
+      .string()
+      .regex(OWNER_PATTERN, "lowercase alphanumeric/hyphen, max 39 chars")
+      .optional(),
     name: z
       .string()
       .regex(PACK_NAME_PATTERN, "lowercase alphanumeric/hyphen, max 64 chars"),
@@ -47,9 +66,9 @@ export const AgentManifestSchema = z
     tags: z.array(z.string().min(1).max(32)).max(16).default([]),
     license: z.string().max(120).optional(),
     compatibility: z.array(z.enum(HARNESSES)).min(1).default(["agents"]),
-    skills: z.array(z.string().min(1)).default([]),
-    instructions: z.array(z.string().min(1)).default([]),
-    mcp: z.object({ config: z.string().min(1) }).optional(),
+    skills: z.array(safeRelativePath()).default([]),
+    instructions: z.array(safeRelativePath()).default([]),
+    mcp: z.object({ config: safeRelativePath() }).optional(),
     endpoint: EndpointSchema.optional(),
     runtime: RuntimeSchema.optional(),
     secrets: z

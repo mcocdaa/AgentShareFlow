@@ -19,6 +19,13 @@ export interface PackDetail extends PackSummary {
   readme?: string | null;
   versions: string[];
   starred?: boolean;
+  signature?: {
+    publicKey: string;
+    sig?: string;
+    value?: string;
+    algorithm?: string;
+    fingerprint?: string;
+  } | null;
   manifest: {
     license?: string;
     compatibility?: string[];

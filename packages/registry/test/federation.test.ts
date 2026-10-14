@@ -24,6 +24,7 @@ describe("Registry Cross-Cluster Federation", () => {
   }
 
   beforeEach(async () => {
+    process.env.ALLOW_PRIVATE_ENDPOINTS = "1";
     // Setup a mock remote peer registry HTTP server
     peerHttpServer = http.createServer((req, res) => {
       const url = req.url ?? "/";
@@ -83,8 +84,30 @@ describe("Registry Cross-Cluster Federation", () => {
   });
 
   afterEach(async () => {
+    delete process.env.ALLOW_PRIVATE_ENDPOINTS;
     await new Promise<void>((resolve) => peerHttpServer.close(() => resolve()));
     await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  });
+
+  it("blocks private/loopback peer URLs when ALLOW_PRIVATE_ENDPOINTS is unset", async () => {
+    delete process.env.ALLOW_PRIVATE_ENDPOINTS;
+    const dataDir = await temporaryDirectory("agentshare-reg-fed-ssrf-");
+    const app = createApp({ dataDir });
+
+    const addRes = await app.request("/api/v1/federation/peers", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-dev-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Internal Loopback",
+        url: `http://127.0.0.1:${peerPort}`,
+      }),
+    });
+    expect(addRes.status).toBe(400);
+    const body = (await addRes.json()) as { error: string };
+    expect(body.error).toMatch(/loopback|private/i);
   });
 
   it("serves well-known discovery manifest and manages peer lifecycle", async () => {

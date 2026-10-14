@@ -62,4 +62,20 @@ describe("exportPackSkills", () => {
       "export destination must be outside the extracted pack",
     );
   });
+
+  it("rejects path traversal and symlink escape in skill paths", async () => {
+    const pack = await temporaryDirectory();
+    const out = await temporaryDirectory();
+    await expect(exportPackSkills(pack, { name: "x", skills: ["../outside"] }, out)).rejects.toThrow(
+      /unsafe skill path/i,
+    );
+
+    const outsideSkill = await temporaryDirectory();
+    await fs.writeFile(path.join(outsideSkill, "SKILL.md"), "# Evil\n");
+    await fs.mkdir(path.join(pack, "skills"), { recursive: true });
+    await fs.symlink(outsideSkill, path.join(pack, "skills", "escaped"));
+    await expect(exportPackSkills(pack, { name: "x", skills: ["skills/escaped"] }, out)).rejects.toThrow(
+      /escapes pack root/i,
+    );
+  });
 });
