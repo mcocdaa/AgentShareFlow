@@ -9,6 +9,12 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
 
+### 🎬 Live Demo
+
+<p align="center">
+  <img src="docs/assets/demo_registry.gif" alt="AgentShareFlow Registry & Playground Demo" width="820">
+</p>
+
 发布、发现、安装 **Agent Pack** 的开放注册表，以及把本地 agent 会话实时交接给他人的分享链路（M1 优先支持 DeepSeek Harness）。
 
 - **离线包**：把 skill / 提示词 / MCP 配置打包发布，一键安装到 Claude Code / Codex / opencode / OpenClaw / Hermes。
