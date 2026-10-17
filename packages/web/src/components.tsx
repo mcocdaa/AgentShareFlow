@@ -134,7 +134,7 @@ export function InstallCommand({
 }
 
 export function PackCard({ pack }: { pack: PackSummary }) {
-  const { t } = useI18n();
+  const { t, td } = useI18n();
   return (
     <a className="card" href={`#/agents/${pack.owner}/${pack.name}`}>
       <div className="card-head">
@@ -143,12 +143,12 @@ export function PackCard({ pack }: { pack: PackSummary }) {
         </span>
         <ModeBadge mode={pack.mode} />
       </div>
-      <h3>{pack.title}</h3>
-      <p>{pack.description}</p>
+      <h3>{td(pack.title)}</h3>
+      <p>{td(pack.description)}</p>
       <div className="card-tags">
         {(pack.tags ?? []).slice(0, 3).map((tag) => (
           <span key={tag} className="tag-pill">
-            #{tag}
+            #{td(tag)}
           </span>
         ))}
       </div>

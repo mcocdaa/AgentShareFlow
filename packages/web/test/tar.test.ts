@@ -202,7 +202,12 @@ describe("WebUI API token symmetry helpers", () => {
   });
 });
 
-import { getInitialLocale, translations } from "../src/i18n.js";
+import {
+  getInitialLocale,
+  translateEvidenceKind,
+  translatePackText,
+  translations,
+} from "../src/i18n.js";
 
 describe("Bilingual i18n dictionary and locale defaults", () => {
   it("defaults to 'en' when agentshare_lang is not set and respects 'zh'", () => {
@@ -234,6 +239,9 @@ describe("Bilingual i18n dictionary and locale defaults", () => {
       expect(translations.en[key].length).toBeGreaterThan(0);
       expect(translations.zh[key].length).toBeGreaterThan(0);
     }
+    expect(translations.zh.modeOffline).toBe("离线可用");
+    expect(translations.zh.roleOwner).toBe("所有者");
+    expect(translations.zh.roleMember).toBe("成员");
   });
 
   it("localizes tarball extraction errors when locale is zh", () => {
@@ -244,5 +252,25 @@ describe("Bilingual i18n dictionary and locale defaults", () => {
       extractManifestFromTarball(tar([entry("agent.json", "{oops")]), "zh"),
     ).toThrow("agent.json 不是有效的 JSON");
   });
+
+  it("dynamically translates seeded pack metadata, handoff evidence kinds, and active errors between en and zh", () => {
+    expect(translatePackText("Flow Ecosystem Orchestrator", "zh")).toBe("Flow 生态编排器");
+    expect(translatePackText("Flow 生态编排器", "en")).toBe("Flow Ecosystem Orchestrator");
+    expect(translatePackText("Release Helper", "zh")).toBe("发布助手");
+    expect(translatePackText("Hello Handoff", "zh")).toBe("项目交接助手");
+    expect(translatePackText("orchestration", "zh")).toBe("服务编排");
+    expect(translatePackText("agent.json is missing \"version\"", "zh")).toBe(
+      "agent.json 缺少必填字段 \"version\"",
+    );
+    expect(translatePackText("agent.json 缺少必填字段 \"version\"", "en")).toBe(
+      "agent.json is missing \"version\"",
+    );
+    expect(translateEvidenceKind("file", "zh")).toBe("文件");
+    expect(translateEvidenceKind("command", "zh")).toBe("命令");
+    expect(translateEvidenceKind("url", "zh")).toBe("链接");
+    expect(translateEvidenceKind("commit", "zh")).toBe("提交");
+    expect(translateEvidenceKind("note", "zh")).toBe("笔记");
+  });
 });
+
 

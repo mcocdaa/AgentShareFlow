@@ -6,13 +6,79 @@ import {
   getStoredToken,
   runPackPlayground,
 } from "./api.js";
-import { type Locale, translations, useI18n } from "./i18n.js";
+import { type Locale, translatePackText, translations, useI18n } from "./i18n.js";
 
 function buildDefaultPrompt(detail: PackDetail, loc: Locale): string {
   const dict = translations[loc];
+  const localizedTitle = translatePackText(detail.title, loc);
   return detail.mode === "runtime"
     ? JSON.stringify({ action: "execute", query: dict.defaultRuntimeQuery }, null, 2)
-    : `${dict.defaultSkillPromptPrefix}${detail.title}${dict.defaultSkillPromptSuffix}`;
+    : `${dict.defaultSkillPromptPrefix}${localizedTitle}${dict.defaultSkillPromptSuffix}`;
+}
+
+function formatPlaygroundLog(log: string, loc: Locale, detail: PackDetail): string {
+  const zhDefault = buildDefaultPrompt(detail, "zh");
+  const enDefault = buildDefaultPrompt(detail, "en");
+  if (loc === "en") {
+    return log.replace(zhDefault, enDefault);
+  }
+  if (log === "[Sandbox Runtime] Initialized offline skill emulation sandbox.") {
+    return "[沙箱运行时] 已初始化离线技能仿真沙箱环境。";
+  }
+  const loadedMatch = /^\[Sandbox Runtime\] Loaded (.+) \((\d+) bytes\)\.$/.exec(log);
+  if (loadedMatch) {
+    return `[沙箱运行时] 已加载 ${loadedMatch[1]} (${loadedMatch[2]} 字节)。`;
+  }
+  const queryMatch = /^\[Sandbox Runtime\] Processing input query: "([\s\S]*)"$/.exec(log);
+  if (queryMatch) {
+    return `[沙箱运行时] 正在处理输入指令: "${translatePackText(queryMatch[1] ?? "", "zh")}"`;
+  }
+  if (log === "[Sandbox Runtime] Execution successfully concluded with status: completed.") {
+    return "[沙箱运行时] 执行已成功完成，状态: 已完成。";
+  }
+  return log.replace(enDefault, zhDefault);
+}
+
+function formatPlaygroundOutput(output: unknown, loc: Locale, detail: PackDetail): unknown {
+  if (typeof output !== "object" || output === null) return output;
+  const rec = output as Record<string, unknown>;
+  const zhDefault = buildDefaultPrompt(detail, "zh");
+  const enDefault = buildDefaultPrompt(detail, "en");
+  if (rec.simulated === true && typeof rec.skill === "string") {
+    const skillLabel = translatePackText(rec.skill, loc);
+    const rawInput = typeof rec.input === "string" ? rec.input : "";
+    const inputStr =
+      loc === "zh"
+        ? rawInput.replace(enDefault, zhDefault)
+        : rawInput.replace(zhDefault, enDefault);
+    if (loc === "zh") {
+      return {
+        ...rec,
+        skill: skillLabel,
+        input: inputStr,
+        status: rec.status === "completed" ? "已完成" : rec.status,
+        response: `来自 ${skillLabel} 的仿真响应：已在隔离沙箱环境中成功完成指令执行："${inputStr}"。`,
+      };
+    }
+    return {
+      ...rec,
+      skill: skillLabel,
+      input: inputStr,
+      status: "completed",
+      response: `Simulated response from ${skillLabel}: Execution completed successfully in sandboxed skill environment for query: "${inputStr}".`,
+    };
+  }
+  if (typeof rec.task === "string") {
+    const taskStr =
+      loc === "zh"
+        ? rec.task.replace(enDefault, zhDefault)
+        : rec.task.replace(zhDefault, enDefault);
+    return {
+      ...rec,
+      task: taskStr,
+    };
+  }
+  return output;
 }
 
 export function PlaygroundView({
@@ -24,7 +90,7 @@ export function PlaygroundView({
   session?: SessionInfo | null;
   onRequireAuth?: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t, td, locale } = useI18n();
   const [inputVal, setInputVal] = useState(() => buildDefaultPrompt(detail, locale));
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<PlaygroundResult | null>(null);
@@ -32,10 +98,12 @@ export function PlaygroundView({
   const [showLogs, setShowLogs] = useState(true);
 
   useEffect(() => {
+    setError((prev) => (prev ? translatePackText(prev, locale) : null));
     setInputVal((prev) => {
       const enDefault = buildDefaultPrompt(detail, "en");
       const zhDefault = buildDefaultPrompt(detail, "zh");
-      if (prev === enDefault || prev === zhDefault) {
+      const rawZhDefault = `${translations.zh.defaultSkillPromptPrefix}${detail.title}${translations.zh.defaultSkillPromptSuffix}`;
+      if (prev === enDefault || prev === zhDefault || prev === rawZhDefault) {
         return buildDefaultPrompt(detail, locale);
       }
       if (
@@ -229,7 +297,7 @@ export function PlaygroundView({
               borderRadius: "6px",
               fontSize: "0.9rem",
             }}>
-              <strong>{t("executionErrorLabel")}</strong> {error}
+              <strong>{t("executionErrorLabel")}</strong> {td(error)}
             </div>
           )}
         </div>
@@ -305,7 +373,7 @@ export function PlaygroundView({
               }}>
                 {result
                   ? typeof result.output === "object" && result.output !== null
-                    ? JSON.stringify(result.output, null, 2)
+                    ? JSON.stringify(formatPlaygroundOutput(result.output, locale, detail), null, 2)
                     : String(result.output ?? t("noOutputFallback"))
                   : t("noOutputFallback")}
               </pre>
@@ -320,7 +388,7 @@ export function PlaygroundView({
                   {result && result.logs && result.logs.length > 0 ? (
                     result.logs.map((log, i) => (
                       <div key={i} className="stream-line">
-                        {log}
+                        {formatPlaygroundLog(log, locale, detail)}
                       </div>
                     ))
                   ) : (

@@ -42,7 +42,16 @@ export function DependencyTopology({ detail }: TopologyProps) {
             <div className="node-icon">📦</div>
             <div className="node-body">
               <div className="node-title">{detail.name}</div>
-              <div className="node-sub">@{detail.owner} · v{detail.version} · {detail.mode}</div>
+              <div className="node-sub">
+                @{detail.owner} · v{detail.version} ·{" "}
+                {detail.mode === "offline"
+                  ? t("modeOffline")
+                  : detail.mode === "endpoint"
+                    ? t("modeEndpoint")
+                    : detail.mode === "runtime"
+                      ? t("modeRuntime")
+                      : detail.mode}
+              </div>
             </div>
           </div>
         </div>

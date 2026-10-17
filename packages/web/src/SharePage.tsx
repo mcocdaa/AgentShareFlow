@@ -8,7 +8,7 @@ import {
   postShareMessage,
   postSubmission,
 } from "./api.js";
-import { type TranslationKey, useI18n } from "./i18n.js";
+import { type TranslationKey, translateEvidenceKind, useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
 
 function upsertMessage(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
@@ -29,10 +29,11 @@ function safeHref(ref: string): string | undefined {
 }
 
 function EvidenceLine({ item }: { item: HandoffEvidence }) {
+  const { locale, td } = useI18n();
   const href = item.kind === "url" ? safeHref(item.ref) : undefined;
   return (
     <li className="evidence">
-      <span className="muted small">[{item.kind}]</span> {item.label}{" "}
+      <span className="muted small">[{translateEvidenceKind(item.kind, locale)}]</span> {td(item.label)}{" "}
       {href ? (
         <a href={href} target="_blank" rel="noreferrer">
           {item.ref}
@@ -57,20 +58,20 @@ const AUTH_TAG_KEY: Record<ShareHandoff["authorizations"][number]["status"], Tra
 };
 
 function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
-  const { t } = useI18n();
+  const { t, td } = useI18n();
   const openCount = handoff.tasks.filter((task) => task.status !== "done").length;
   return (
     <details className="handoff">
       <summary>
-        {t("handoffContextPrefix")} · {handoff.title}
+        {t("handoffContextPrefix")} · {td(handoff.title)}
         {openCount > 0
           ? ` (${openCount} ${t("handoffOpenTasksSuffix")})`
           : ` (${t("handoffComplete")})`}
       </summary>
       <div className="handoff-body">
-        <p>{handoff.goal}</p>
+        <p>{td(handoff.goal)}</p>
         {handoff.doneWhen && (
-          <p className="muted small">{t("handoffDoneWhen")} {handoff.doneWhen}</p>
+          <p className="muted small">{t("handoffDoneWhen")} {td(handoff.doneWhen)}</p>
         )}
         {handoff.tasks.length > 0 && (
           <>
@@ -78,10 +79,10 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
             <ul className="tasks">
               {handoff.tasks.map((task) => (
                 <li key={task.id}>
-                  <span className="muted">{TASK_MARK[task.status]}</span> {task.summary}
+                  <span className="muted">{TASK_MARK[task.status]}</span> {td(task.summary)}
                   {task.status === "blocked" && <span className="warn">{t("handoffBlocked")}</span>}
                   {task.howToVerify && (
-                    <div className="muted small">{t("handoffVerify")} {task.howToVerify}</div>
+                    <div className="muted small">{t("handoffVerify")} {td(task.howToVerify)}</div>
                   )}
                 </li>
               ))}
@@ -94,9 +95,9 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
             {handoff.decisions.map((decision) => (
               <div key={decision.id} className="decision">
                 <p>
-                  <strong>{decision.summary}</strong>
+                  <strong>{td(decision.summary)}</strong>
                 </p>
-                {decision.rationale && <p className="muted small">{decision.rationale}</p>}
+                {decision.rationale && <p className="muted small">{td(decision.rationale)}</p>}
                 {decision.evidence.length > 0 && (
                   <ul>{decision.evidence.map((item, index) => <EvidenceLine key={index} item={item} />)}</ul>
                 )}
@@ -130,7 +131,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
                     {t(AUTH_TAG_KEY[authorization.status])}
                   </span>
                   : {authorization.name}
-                  {authorization.note ? ` — ${authorization.note}` : ""}
+                  {authorization.note ? ` — ${td(authorization.note)}` : ""}
                 </li>
               ))}
             </ul>
@@ -141,7 +142,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
             <h4>{t("handoffConstraintsTitle")}</h4>
             <ul>
               {[...handoff.context.constraints, ...handoff.context.environment].map((item, index) => (
-                <li key={index}>{item}</li>
+                <li key={index}>{td(item)}</li>
               ))}
             </ul>
           </>
@@ -150,7 +151,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
           <>
             <h4>{t("handoffQuestionsTitle")}</h4>
             <ul>
-              {handoff.openQuestions.map((question, index) => <li key={index}>{question}</li>)}
+              {handoff.openQuestions.map((question, index) => <li key={index}>{td(question)}</li>)}
             </ul>
           </>
         )}
@@ -163,7 +164,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
 }
 
 export function SharePage({ id, compact = false }: { id: string; compact?: boolean }) {
-  const { t } = useI18n();
+  const { t, td } = useI18n();
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [status, setStatus] = useState<ShareMeta["status"]>("offline");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -269,7 +270,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
     }
   }, [summary, changes, openQuestions, submitting, id, name, sessionId, t]);
 
-  if (error && !meta) return <p className="error">{error}</p>;
+  if (error && !meta) return <p className="error">{td(error)}</p>;
   if (!meta) return <p className="muted">{t("loadingCatalog")}</p>;
 
   const disabled = status !== "online" || sending;
@@ -283,7 +284,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
       )}
       <div className="card-head">
         <span className="ref">
-          {meta.owner} · {meta.title}
+          {meta.owner} · {td(meta.title)}
         </span>
         <span className={`badge status-${status}`}>
           {t(`shareStatus_${status}`)}
@@ -334,7 +335,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         <div ref={bottomRef} />
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{td(error)}</p>}
 
       <form
         className="composer"

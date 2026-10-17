@@ -13,7 +13,7 @@ import {
   setStoredToken,
 } from "./api.js";
 import { PackCard } from "./components.js";
-import { LanguageProvider, useI18n } from "./i18n.js";
+import { LanguageProvider, translatePackText, useI18n } from "./i18n.js";
 import { PackDetailPage } from "./PackDetail.js";
 import { PublishPage } from "./Publish.js";
 import { SharePage } from "./SharePage.js";
@@ -29,7 +29,7 @@ function useHashRoute(): string {
 }
 
 function AppContent() {
-  const { t, toggleLocale } = useI18n();
+  const { t, td, locale, toggleLocale } = useI18n();
   const hash = useHashRoute();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<PackSummary[]>([]);
@@ -67,6 +67,21 @@ function AppContent() {
   useEffect(() => {
     void refreshIdentity();
   }, [refreshIdentity]);
+
+  useEffect(() => {
+    setAuthError((prev) => (prev ? translatePackText(prev, locale) : null));
+  }, [locale]);
+
+  useEffect(() => {
+    if (!authModalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAuthModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [authModalOpen]);
 
   const runSearch = useCallback((value: string) => {
     setLoading(true);
@@ -331,7 +346,21 @@ function AppContent() {
                   <span className="org-chip">
                     {t("orgsLabel")}{" "}
                     {orgs.length > 0
-                      ? orgs.map((o) => `${o.org.name} (${o.role})`).join(", ")
+                      ? orgs
+                          .map((o) => {
+                            const roleLabel =
+                              o.role === "owner"
+                                ? t("roleOwner")
+                                : o.role === "admin"
+                                  ? t("roleAdmin")
+                                  : o.role === "member"
+                                    ? t("roleMember")
+                                    : o.role === "viewer"
+                                      ? t("roleViewer")
+                                      : o.role;
+                            return `${o.org.name} (${roleLabel})`;
+                          })
+                          .join(", ")
                       : t("orgsNone")}
                   </span>
                   <span className="org-chip">{t("federationPeersLabel")} {peers.length}</span>
@@ -364,7 +393,7 @@ function AppContent() {
 
             {authError && (
               <div className="banner error" style={{ marginBottom: "12px", marginTop: 0 }}>
-                {authError}
+                {td(authError)}
               </div>
             )}
 

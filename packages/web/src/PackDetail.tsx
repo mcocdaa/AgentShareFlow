@@ -24,7 +24,7 @@ export function PackDetailPage({
   session?: SessionInfo | null;
   onRequireAuth?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, td } = useI18n();
   const [detail, setDetail] = useState<PackDetail | null>(null);
   const [readme, setReadme] = useState<string | null>(null);
   const [loadingReadme, setLoadingReadme] = useState(false);
@@ -73,14 +73,14 @@ export function PackDetailPage({
       if (/unauthorized|401/i.test(msg) && onRequireAuth) {
         onRequireAuth();
       } else {
-        alert(`${t("starFailedPrefix")} ${msg}`);
+        alert(`${t("starFailedPrefix")} ${td(msg)}`);
       }
     } finally {
       setStarring(false);
     }
   };
 
-  if (error) return <div className="error-card"><p className="error">{error}</p><a className="back" href="#/">{t("backToCatalogLower")}</a></div>;
+  if (error) return <div className="error-card"><p className="error">{td(error)}</p><a className="back" href="#/">{t("backToCatalogLower")}</a></div>;
   if (!detail) return <div className="loading-container"><div className="spinner" /><p className="muted">{t("loadingPackSpec")}</p></div>;
 
   return (
@@ -122,13 +122,13 @@ export function PackDetailPage({
             <span className="license-badge">{detail.manifest.license}</span>
           )}
         </div>
-        <h1 className="pack-title">{detail.title}</h1>
-        <p className="pack-description">{detail.description}</p>
+        <h1 className="pack-title">{td(detail.title)}</h1>
+        <p className="pack-description">{td(detail.description)}</p>
 
         {detail.tags && detail.tags.length > 0 && (
           <div className="pack-tags-row">
             {detail.tags.map((tag) => (
-              <span key={tag} className="tag-pill">#{tag}</span>
+              <span key={tag} className="tag-pill">#{td(tag)}</span>
             ))}
           </div>
         )}
@@ -195,7 +195,7 @@ export function PackDetailPage({
                   <span>{t("parsingSkillMd")}</span>
                 </div>
               ) : readme ? (
-                <MarkdownView content={readme} />
+                <MarkdownView content={td(readme)} />
               ) : (
                 <div className="empty-readme">
                   <p>{t("emptySkillMdTitle")}</p>

@@ -8,7 +8,7 @@ import {
   type SessionInfo,
 } from "./api.js";
 import { ModeBadge } from "./components.js";
-import { useI18n } from "./i18n.js";
+import { translatePackText, useI18n } from "./i18n.js";
 import { extractManifestFromTarball } from "./tar.js";
 
 const CLI = "npx @agentshare/cli";
@@ -92,7 +92,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function PublishPage() {
-  const { t, locale } = useI18n();
+  const { t, td, locale } = useI18n();
   const [token, setToken] = useState(() => getStoredToken() ?? "");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -111,6 +111,10 @@ export function PublishPage() {
       .then((found) => setSession(found))
       .finally(() => setSessionChecked(true));
   }, []);
+
+  useEffect(() => {
+    setError((prev) => (prev ? translatePackText(prev, locale) : null));
+  }, [locale]);
 
   const selectFile = async (selected: File | null): Promise<void> => {
     setFile(selected === null ? null : { name: selected.name, size: selected.size });
@@ -242,8 +246,8 @@ export function PublishPage() {
               </span>
               <ModeBadge mode={preview.mode} />
             </div>
-            <h3>{preview.title}</h3>
-            <p>{preview.description}</p>
+            <h3>{td(preview.title)}</h3>
+            <p>{td(preview.description)}</p>
             <div className="meta-row preview-chips">
               {preview.compatibility.length > 0 && (
                 <span className="chip">{preview.compatibility.join(" · ")}</span>
@@ -257,7 +261,7 @@ export function PublishPage() {
               )}
               {preview.tags.map((tag) => (
                 <span className="chip" key={tag}>
-                  {tag}
+                  {td(tag)}
                 </span>
               ))}
               {preview.secrets.map((secret) => (
@@ -297,7 +301,7 @@ export function PublishPage() {
             : t("tokenHintSignedOut")}
         </p>
 
-        {error !== null && <p className="banner error">{error}</p>}
+        {error !== null && <p className="banner error">{td(error)}</p>}
         {result !== null && (
           <div className="success-card">
             <div className="card-head preview-head">
