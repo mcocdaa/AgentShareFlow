@@ -13,6 +13,7 @@ import {
   setStoredToken,
 } from "./api.js";
 import { PackCard } from "./components.js";
+import { LanguageProvider, useI18n } from "./i18n.js";
 import { PackDetailPage } from "./PackDetail.js";
 import { PublishPage } from "./Publish.js";
 import { SharePage } from "./SharePage.js";
@@ -27,7 +28,8 @@ function useHashRoute(): string {
   return hash;
 }
 
-export function App() {
+function AppContent() {
+  const { t, toggleLocale } = useI18n();
   const hash = useHashRoute();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<PackSummary[]>([]);
@@ -104,7 +106,7 @@ export function App() {
   const handleCredentialsSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password) {
-      setAuthError("Username and password are required.");
+      setAuthError(t("errCredentialsRequired"));
       return;
     }
     setAuthBusy(true);
@@ -126,7 +128,7 @@ export function App() {
     e.preventDefault();
     const cleaned = tokenInput.trim().replace(/^Bearer\s+/i, "");
     if (!cleaned) {
-      setAuthError("Please paste a valid Bearer token.");
+      setAuthError(t("errPasteValidToken"));
       return;
     }
     setAuthBusy(true);
@@ -136,7 +138,7 @@ export function App() {
       const verified = await refreshIdentity();
       if (!verified) {
         setStoredToken(null);
-        setAuthError("Invalid access token.");
+        setAuthError(t("errInvalidToken"));
         return;
       }
       setTokenInput(cleaned);
@@ -172,12 +174,12 @@ export function App() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search packs…"
+            placeholder={t("searchPlaceholder")}
           />
-          <button type="submit">Search</button>
+          <button type="submit">{t("searchBtn")}</button>
         </form>
         <a className={`header-link${publishMatch ? " active" : ""}`} href="#/publish">
-          Publish
+          {t("publishNav")}
         </a>
 
         <div className="identity-bar">
@@ -190,7 +192,7 @@ export function App() {
                   setAuthError(null);
                   setAuthModalOpen(true);
                 }}
-                title="Account & Access Token"
+                title={t("accountAndToken")}
               >
                 <span className="user-status-dot">●</span>
                 <span>@{session.owner}</span>
@@ -199,8 +201,8 @@ export function App() {
                 type="button"
                 className={`nav-icon-btn${copiedToken ? " copied" : ""}`}
                 onClick={handleCopyBearerToken}
-                title={copiedToken ? "Access token copied" : "Copy access token"}
-                aria-label="Copy access token"
+                title={copiedToken ? t("tokenCopiedTitle") : t("copyTokenTitle")}
+                aria-label={t("copyTokenTitle")}
               >
                 {copiedToken ? (
                   <svg
@@ -223,8 +225,8 @@ export function App() {
                 type="button"
                 className="nav-icon-btn signout"
                 onClick={handleSignOut}
-                title="Sign Out"
-                aria-label="Sign Out"
+                title={t("signOut")}
+                aria-label={t("signOut")}
               >
                 <svg
                   width="14"
@@ -251,9 +253,18 @@ export function App() {
                 setAuthModalOpen(true);
               }}
             >
-              Sign In
+              {t("signIn")}
             </button>
           )}
+          <button
+            type="button"
+            data-testid="lang-toggle-btn"
+            className="lang-toggle-btn"
+            onClick={toggleLocale}
+            title={t("langToggleTitle")}
+          >
+            {t("langToggleLabel")}
+          </button>
         </div>
       </header>
 
@@ -295,7 +306,7 @@ export function App() {
               }}
             >
               <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
-                🔑 Account &amp; Access Token
+                {t("authModalTitle")}
               </h3>
               <button
                 type="button"
@@ -307,8 +318,7 @@ export function App() {
             </div>
 
             <p className="muted" style={{ fontSize: "0.85rem", marginTop: 0, marginBottom: "16px" }}>
-              Manage your account session, organization memberships, and personal access token for
-              CLI publishing and sandbox execution.
+              {t("authModalDesc")}
             </p>
 
             {session && (
@@ -332,7 +342,7 @@ export function App() {
                 >
                   <div>
                     <span className="muted" style={{ fontSize: "0.75rem", display: "block" }}>
-                      Signed in as
+                      {t("signedInAs")}
                     </span>
                     <strong style={{ color: "#34d399", fontSize: "1rem" }}>@{session.owner}</strong>
                   </div>
@@ -342,7 +352,7 @@ export function App() {
                       onClick={handleCopyBearerToken}
                       style={{ fontSize: "0.8rem", padding: "6px 10px", whiteSpace: "nowrap" }}
                     >
-                      {copiedToken ? "✓ Copied" : "Copy Token"}
+                      {copiedToken ? t("copiedShort") : t("copyTokenBtn")}
                     </button>
                     <button
                       type="button"
@@ -354,7 +364,7 @@ export function App() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      Sign Out
+                      {t("signOut")}
                     </button>
                   </div>
                 </div>
@@ -386,12 +396,12 @@ export function App() {
                   }}
                 >
                   <span>
-                    Orgs:{" "}
+                    {t("orgsLabel")}{" "}
                     {orgs.length > 0
                       ? orgs.map((o) => `${o.org.name} (${o.role})`).join(", ")
-                      : "none"}
+                      : t("orgsNone")}
                   </span>
-                  <span>Federation Peers: {peers.length}</span>
+                  <span>{t("federationPeersLabel")} {peers.length}</span>
                 </div>
               </div>
             )}
@@ -412,7 +422,7 @@ export function App() {
                   fontWeight: authTab === "credentials" ? 600 : 400,
                 }}
               >
-                Sign In / Register
+                {t("signInRegisterTab")}
               </button>
               <button
                 type="button"
@@ -429,7 +439,7 @@ export function App() {
                   fontWeight: authTab === "token" ? 600 : 400,
                 }}
               >
-                Use Access Token
+                {t("useAccessTokenTab")}
               </button>
             </div>
 
@@ -465,7 +475,7 @@ export function App() {
                       borderColor: authMode === "login" ? "var(--accent)" : "var(--border)",
                     }}
                   >
-                    Sign In
+                    {t("signIn")}
                   </button>
                   <button
                     type="button"
@@ -477,20 +487,20 @@ export function App() {
                       borderColor: authMode === "register" ? "var(--accent)" : "var(--border)",
                     }}
                   >
-                    Create Account
+                    {t("createAccount")}
                   </button>
                 </div>
                 <input
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username (e.g. alice)"
+                  placeholder={t("usernamePlaceholder")}
                   autoComplete="username"
                 />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password (min 4 characters)"
+                  placeholder={t("passwordPlaceholder")}
                   autoComplete={authMode === "register" ? "new-password" : "current-password"}
                 />
                 <button
@@ -504,10 +514,10 @@ export function App() {
                   }}
                 >
                   {authBusy
-                    ? "Signing in…"
+                    ? t("signingInBusy")
                     : authMode === "register"
-                      ? "Create Account"
-                      : "Sign In"}
+                      ? t("createAccount")
+                      : t("signIn")}
                 </button>
               </form>
             ) : (
@@ -519,7 +529,7 @@ export function App() {
                   type="password"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Paste personal access token"
+                  placeholder={t("pasteTokenPlaceholder")}
                   autoComplete="off"
                 />
                 <button
@@ -532,7 +542,7 @@ export function App() {
                     border: "none",
                   }}
                 >
-                  {authBusy ? "Verifying…" : "Save Access Token"}
+                  {authBusy ? t("verifyingBusy") : t("saveAccessToken")}
                 </button>
               </form>
             )}
@@ -556,9 +566,9 @@ export function App() {
             }}
           />
         ) : loading ? (
-          <p className="muted">loading…</p>
+          <p className="muted">{t("loadingCatalog")}</p>
         ) : items.length === 0 ? (
-          <p className="muted">no packs yet — publish one with the CLI</p>
+          <p className="muted">{t("emptyCatalog")}</p>
         ) : (
           <div className="grid">
             {items.map((pack) => (
@@ -568,5 +578,13 @@ export function App() {
         )}
       </main>
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }

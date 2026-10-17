@@ -8,6 +8,7 @@ import {
   postShareMessage,
   postSubmission,
 } from "./api.js";
+import { useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
 
 function upsertMessage(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
@@ -49,36 +50,45 @@ const TASK_MARK: Record<ShareHandoff["tasks"][number]["status"], string> = {
   "in-progress": "[ ]",
 };
 
-const AUTH_TAG: Record<ShareHandoff["authorizations"][number]["status"], string> = {
-  inherited: "可继承",
-  reauthorize: "需重新授权",
-  unavailable: "不可用",
+const AUTH_TAG: Record<"en" | "zh", Record<ShareHandoff["authorizations"][number]["status"], string>> = {
+  en: {
+    inherited: "Inherited",
+    reauthorize: "Reauthorize",
+    unavailable: "Unavailable",
+  },
+  zh: {
+    inherited: "可继承",
+    reauthorize: "需重新授权",
+    unavailable: "不可用",
+  },
 };
 
 function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
+  const { t, locale } = useI18n();
+  const openCount = handoff.tasks.filter((task) => task.status !== "done").length;
   return (
     <details className="handoff">
       <summary>
-        📋 Handoff Context · {handoff.title}
-        {handoff.tasks.filter((task) => task.status !== "done").length > 0
-          ? ` (${handoff.tasks.filter((task) => task.status !== "done").length} open tasks)`
-          : " (complete)"}
+        {t("handoffContextPrefix")} · {handoff.title}
+        {openCount > 0
+          ? ` (${openCount} ${t("handoffOpenTasksSuffix")})`
+          : ` (${t("handoffComplete")})`}
       </summary>
       <div className="handoff-body">
         <p>{handoff.goal}</p>
         {handoff.doneWhen && (
-          <p className="muted small">完成标准：{handoff.doneWhen}</p>
+          <p className="muted small">{t("handoffDoneWhen")} {handoff.doneWhen}</p>
         )}
         {handoff.tasks.length > 0 && (
           <>
-            <h4>进度与待办</h4>
+            <h4>{t("handoffTasksTitle")}</h4>
             <ul className="tasks">
               {handoff.tasks.map((task) => (
                 <li key={task.id}>
                   <span className="muted">{TASK_MARK[task.status]}</span> {task.summary}
-                  {task.status === "blocked" && <span className="warn">（阻塞）</span>}
+                  {task.status === "blocked" && <span className="warn">{t("handoffBlocked")}</span>}
                   {task.howToVerify && (
-                    <div className="muted small">验证：{task.howToVerify}</div>
+                    <div className="muted small">{t("handoffVerify")} {task.howToVerify}</div>
                   )}
                 </li>
               ))}
@@ -87,7 +97,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {handoff.decisions.length > 0 && (
           <>
-            <h4>关键决策</h4>
+            <h4>{t("handoffDecisionsTitle")}</h4>
             {handoff.decisions.map((decision) => (
               <div key={decision.id} className="decision">
                 <p>
@@ -103,7 +113,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {handoff.context.sources.length > 0 && (
           <>
-            <h4>资料来源</h4>
+            <h4>{t("handoffSourcesTitle")}</h4>
             <ul>
               {handoff.context.sources.map((item, index) => <EvidenceLine key={index} item={item} />)}
             </ul>
@@ -111,7 +121,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {handoff.outcomes.length > 0 && (
           <>
-            <h4>成果</h4>
+            <h4>{t("handoffOutcomesTitle")}</h4>
             <ul>
               {handoff.outcomes.map((item, index) => <EvidenceLine key={index} item={item} />)}
             </ul>
@@ -119,14 +129,14 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {handoff.authorizations.length > 0 && (
           <>
-            <h4>授权（不会自动继承）</h4>
+            <h4>{t("handoffAuthTitle")}</h4>
             <ul>
               {handoff.authorizations.map((authorization) => (
                 <li key={authorization.name}>
                   <span className={authorization.status === "inherited" ? "muted" : "warn"}>
-                    {AUTH_TAG[authorization.status]}
+                    {AUTH_TAG[locale][authorization.status]}
                   </span>
-                  ：{authorization.name}
+                  : {authorization.name}
                   {authorization.note ? ` — ${authorization.note}` : ""}
                 </li>
               ))}
@@ -135,7 +145,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {(handoff.context.constraints.length > 0 || handoff.context.environment.length > 0) && (
           <>
-            <h4>约束与环境</h4>
+            <h4>{t("handoffConstraintsTitle")}</h4>
             <ul>
               {[...handoff.context.constraints, ...handoff.context.environment].map((item, index) => (
                 <li key={index}>{item}</li>
@@ -145,14 +155,14 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
         )}
         {handoff.openQuestions.length > 0 && (
           <>
-            <h4>待解决问题</h4>
+            <h4>{t("handoffQuestionsTitle")}</h4>
             <ul>
               {handoff.openQuestions.map((question, index) => <li key={index}>{question}</li>)}
             </ul>
           </>
         )}
         <p className="muted small">
-          资料来源未经过验证；权限不会自动继承。可以在下面追问某个决策的依据。
+          {t("handoffFooterNote")}
         </p>
       </div>
     </details>
@@ -160,6 +170,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
 }
 
 export function SharePage({ id, compact = false }: { id: string; compact?: boolean }) {
+  const { t } = useI18n();
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [status, setStatus] = useState<ShareMeta["status"]>("offline");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -251,8 +262,8 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         ...(sessionId === undefined ? {} : { sessionId }),
       });
       setSubmissionNote(
-        `已提交 #${created.id}，等待原任务人接收${
-          sessionId === undefined ? "（先在对话里发一条消息，结果会通知到会话）" : ""
+        `Submitted #${created.id}${
+          sessionId === undefined ? " (send a message in the chat to receive updates)" : ""
         }`,
       );
       setSummary("");
@@ -266,7 +277,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
   }, [summary, changes, openQuestions, submitting, id, name, sessionId]);
 
   if (error && !meta) return <p className="error">{error}</p>;
-  if (!meta) return <p className="muted">loading…</p>;
+  if (!meta) return <p className="muted">{t("loadingCatalog")}</p>;
 
   const disabled = status !== "online" || sending;
 
@@ -274,7 +285,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
     <div className={`share${compact ? " compact" : ""}`}>
       {!compact && (
         <a className="back" href="#/">
-          ← back
+          {t("backLink")}
         </a>
       )}
       <div className="card-head">
@@ -285,12 +296,12 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
       </div>
       <p className="muted small">
         {status === "revoked"
-          ? "This share has been revoked."
+          ? t("shareRevoked")
           : meta.mode === "endpoint"
-            ? `You are talking to a remote agent over A2A${meta.agent?.name ? `: ${meta.agent.name}` : ""}.`
+            ? `${t("shareEndpointPrefix")}${meta.agent?.name ? `: ${meta.agent.name}` : ""}.`
             : status === "online"
-              ? "You are talking to a live agent session on the owner's machine. Read-only."
-              : "The owner is offline. The link works again when their agent is sharing."}
+              ? t("shareOnlineDesc")
+              : t("shareOfflineDesc")}
       </p>
 
       {meta.handoff && <HandoffPanel handoff={meta.handoff} />}
@@ -322,7 +333,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         {messages.length === 0 && !streamText && (
           <div className="chat-empty">
             <span className="chat-empty-icon">💬</span>
-            <p>No messages yet — start a session to converse with this agent.</p>
+            <p>{t("chatEmpty")}</p>
           </div>
         )}
         <div ref={bottomRef} />
@@ -341,23 +352,23 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
           className="name"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="your name"
+          placeholder={t("yourNamePlaceholder")}
           maxLength={40}
         />
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={disabled ? "offline" : "ask the agent…"}
+          placeholder={disabled ? t("offlinePlaceholder") : t("askAgentPlaceholder")}
           disabled={disabled}
         />
         <button type="submit" disabled={disabled}>
-          send
+          {t("sendBtn")}
         </button>
       </form>
 
       {meta.handoff && (
         <details className="submission">
-          <summary>提交成果</summary>
+          <summary>{t("submitOutcomeSummary")}</summary>
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -367,7 +378,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
             <textarea
               value={summary}
               onChange={(event) => setSummary(event.target.value)}
-              placeholder="这次续做完成了什么？"
+              placeholder={t("submitSummaryPlaceholder")}
               maxLength={4000}
               rows={3}
               required
@@ -375,19 +386,19 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
             <textarea
               value={changes}
               onChange={(event) => setChanges(event.target.value)}
-              placeholder="变更说明，每行一条（可选）"
+              placeholder={t("submitChangesPlaceholder")}
               maxLength={8000}
               rows={3}
             />
             <textarea
               value={openQuestions}
               onChange={(event) => setOpenQuestions(event.target.value)}
-              placeholder="未解决的问题，每行一条（可选）"
+              placeholder={t("submitQuestionsPlaceholder")}
               maxLength={4000}
               rows={2}
             />
             <button type="submit" disabled={submitting || summary.trim() === ""}>
-              {submitting ? "提交中…" : "提交"}
+              {submitting ? t("submittingBtn") : t("submitBtn")}
             </button>
           </form>
           {submissionNote && <p className="muted small">{submissionNote}</p>}

@@ -8,6 +8,7 @@ import {
   type SessionInfo,
 } from "./api.js";
 import { ModeBadge } from "./components.js";
+import { useI18n } from "./i18n.js";
 import { extractManifestFromTarball } from "./tar.js";
 
 const CLI = "npx @agentshare/cli";
@@ -70,6 +71,7 @@ function parseRef(ref: string): { owner: string; name: string } {
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -80,12 +82,13 @@ function CopyButton({ text }: { text: string }) {
         window.setTimeout(() => setCopied(false), 1500);
       }}
     >
-      {copied ? "copied" : "copy"}
+      {copied ? t("copiedLower") : t("copyLower")}
     </button>
   );
 }
 
 export function PublishPage() {
+  const { t, locale } = useI18n();
   const [token, setToken] = useState(() => getStoredToken() ?? "");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -160,33 +163,42 @@ export function PublishPage() {
   return (
     <form className="publish" onSubmit={(event) => void submit(event)}>
       <a className="back" href="#/">
-        ← back
+        {t("backLink")}
       </a>
-      <h2>Publish a pack</h2>
+      <h2>{t("publishTitle")}</h2>
       <p className="muted">
-        Releases are immutable — bump <code>version</code> in <code>agent.json</code> to publish
-        again.
+        {locale === "zh" ? (
+          <>
+            {t("publishImmutableLead")} <code>agent.json</code> {t("publishImmutableMid")}{" "}
+            <code>version</code> {t("publishImmutableTail")}
+          </>
+        ) : (
+          <>
+            {t("publishImmutableLead")} <code>version</code> {t("publishImmutableMid")}{" "}
+            <code>agent.json</code> {t("publishImmutableTail")}
+          </>
+        )}
       </p>
 
       <section className="step">
         <div className="step-head">
           <span className="step-num">1</span>
-          <h3>Build the tarball</h3>
+          <h3>{t("publishStep1Title")}</h3>
         </div>
         <div className="install">
           <code>{packCommand}</code>
           <CopyButton text={packCommand} />
         </div>
         <p className="muted small">
-          The registry re-validates <code>agent.json</code>, re-runs the security scan, and blocks
-          high-severity packs.
+          {t("publishStep1DescLead")} <code>agent.json</code>
+          {t("publishStep1DescTail")}
         </p>
       </section>
 
       <section className="step">
         <div className="step-head">
           <span className="step-num">2</span>
-          <h3>Upload</h3>
+          <h3>{t("publishStep2Title")}</h3>
         </div>
         <label
           className={`dropzone${dragOver ? " over" : ""}${file !== null ? " filled" : ""}`}
@@ -204,8 +216,8 @@ export function PublishPage() {
           />
           {file === null ? (
             <>
-              <span className="dropzone-title">Drop a pack tarball here</span>
-              <span className="muted small">or click to choose a .tgz file</span>
+              <span className="dropzone-title">{t("dropzoneEmptyTitle")}</span>
+              <span className="muted small">{t("dropzoneEmptySub")}</span>
             </>
           ) : (
             <>
@@ -256,27 +268,27 @@ export function PublishPage() {
       <section className="step">
         <div className="step-head">
           <span className="step-num">3</span>
-          <h3>Authenticate &amp; publish</h3>
+          <h3>{t("publishStep3Title")}</h3>
         </div>
         {sessionChecked && session !== null && (
           <p className="muted small">
-            Signed in as <strong>{session.owner}</strong> — token not required.
+            {t("publishSignedInLead")} <strong>{session.owner}</strong> {t("publishSignedInTail")}
           </p>
         )}
         <label className="field">
-          API token{session !== null && <span> (optional)</span>}
+          {t("apiTokenLabel")}{session !== null && <span>{t("optionalSuffix")}</span>}
           <input
             type="password"
             value={token}
-            placeholder="token from AGENTSHARE_TOKENS"
+            placeholder={t("tokenPlaceholder")}
             autoComplete="off"
             onChange={(event) => setToken(event.target.value)}
           />
         </label>
         <p className="muted small">
           {session !== null
-            ? "Only needed to publish under a different owner; otherwise this browser session is used."
-            : "Stored in this browser only; sent to this registry as a Bearer token."}
+            ? t("tokenHintSignedIn")
+            : t("tokenHintSignedOut")}
         </p>
 
         {error !== null && <p className="banner error">{error}</p>}
@@ -284,11 +296,11 @@ export function PublishPage() {
           <div className="success-card">
             <div className="card-head">
               <span className="ref">{result.ref}</span>
-              <span className="muted small">published</span>
+              <span className="muted small">{t("publishedBadge")}</span>
             </div>
             <p className="muted small">
               <a href={`#/agents/${parseRef(result.ref).owner}/${parseRef(result.ref).name}`}>
-                view pack
+                {t("viewPackLink")}
               </a>
             </p>
             <div className="install">
@@ -301,7 +313,7 @@ export function PublishPage() {
         )}
 
         <button className="primary" type="submit" disabled={busy || bytes === null}>
-          {busy ? "publishing…" : "publish"}
+          {busy ? t("publishingBusy") : t("publishSubmitBtn")}
         </button>
       </section>
     </form>

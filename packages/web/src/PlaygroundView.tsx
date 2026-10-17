@@ -6,6 +6,7 @@ import {
   getStoredToken,
   runPackPlayground,
 } from "./api.js";
+import { useI18n } from "./i18n.js";
 
 export function PlaygroundView({
   detail,
@@ -16,6 +17,7 @@ export function PlaygroundView({
   session?: SessionInfo | null;
   onRequireAuth?: () => void;
 }) {
+  const { t } = useI18n();
   const defaultPrompt =
     detail.mode === "runtime"
       ? JSON.stringify({ action: "execute", query: "Hello from AgentShare Playground" }, null, 2)
@@ -34,7 +36,7 @@ export function PlaygroundView({
       if (onRequireAuth) {
         onRequireAuth();
       } else {
-        setError("Please sign in to run packs in the sandbox.");
+        setError(t("errSignInToRun"));
       }
       return;
     }
@@ -81,7 +83,7 @@ export function PlaygroundView({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "nowrap", gap: "0.75rem" }}>
           <div>
             <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap" }}>
-              <span>⚡ Live Sandbox Playground</span>
+              <span>{t("playgroundTitle")}</span>
               <span style={{
                 fontSize: "0.75rem",
                 padding: "2px 8px",
@@ -91,11 +93,11 @@ export function PlaygroundView({
                 border: "1px solid rgba(56, 189, 248, 0.3)",
                 whiteSpace: "nowrap",
               }}>
-                🛡️ Isolated Node/Wasm Subprocess
+                {t("playgroundBadge")}
               </span>
             </h3>
             <p style={{ margin: "4px 0 0 0", color: "#8892b0", fontSize: "0.85rem" }}>
-              Test this pack directly in an ephemeral sandbox without local installation.
+              {t("playgroundSubtitle")}
             </p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0, whiteSpace: "nowrap" }}>
@@ -113,7 +115,7 @@ export function PlaygroundView({
                 whiteSpace: "nowrap",
               }}
             >
-              Prompt Preset
+              {t("presetPrompt")}
             </button>
             <button
               type="button"
@@ -129,7 +131,7 @@ export function PlaygroundView({
                 whiteSpace: "nowrap",
               }}
             >
-              JSON Tool Call
+              {t("presetJson")}
             </button>
           </div>
         </div>
@@ -151,7 +153,7 @@ export function PlaygroundView({
             }}
           >
             <span>
-              🔒 Sign in to execute packs in the isolated cloud sandbox.
+              {t("signInSandboxBanner")}
             </span>
             {onRequireAuth && (
               <button
@@ -168,7 +170,7 @@ export function PlaygroundView({
                   whiteSpace: "nowrap",
                 }}
               >
-                Sign In
+                {t("signIn")}
               </button>
             )}
           </div>
@@ -176,7 +178,7 @@ export function PlaygroundView({
 
         <div style={{ marginBottom: "0.75rem" }}>
           <label style={{ display: "block", fontSize: "0.82rem", color: "#8892b0", marginBottom: "0.4rem" }}>
-            Input Payload (Text prompt or JSON):
+            {t("taskPromptLabel")}
           </label>
           <textarea
             value={inputVal}
@@ -221,11 +223,11 @@ export function PlaygroundView({
             {running ? (
               <>
                 <span className="spinner small" />
-                <span>Running in Sandbox…</span>
+                <span>{t("runningInSandbox")}</span>
               </>
             ) : (
               <>
-                <span>⚡ Execute in Sandbox</span>
+                <span>{t("runInSandbox")}</span>
               </>
             )}
           </button>
@@ -241,7 +243,7 @@ export function PlaygroundView({
             marginBottom: "1rem",
             fontSize: "0.9rem",
           }}>
-            <strong>Execution Error:</strong> {error}
+            <strong>{t("executionErrorLabel")}</strong> {error}
           </div>
         )}
 
@@ -269,13 +271,13 @@ export function PlaygroundView({
                   backgroundColor: result.ok ? "rgba(158, 206, 106, 0.2)" : "rgba(247, 118, 142, 0.2)",
                   color: result.ok ? "#9ece6a" : "#f7768e",
                 }}>
-                  {result.ok ? "✓ SUCCESS" : "✗ FAILED"}
+                  {result.ok ? t("statusSuccess") : t("statusFailed")}
                 </span>
                 <span style={{ fontSize: "0.8rem", color: "#7aa2f7" }}>
                   ⏱️ {Math.max(1, result.executionTimeMs)}ms
                 </span>
                 <span style={{ fontSize: "0.8rem", color: "#565f89" }}>
-                  Exit Code: {result.exitCode}
+                  {t("exitCodeLabel")} {result.exitCode}
                 </span>
               </div>
               <div>
@@ -290,7 +292,7 @@ export function PlaygroundView({
                     fontSize: "0.8rem",
                   }}
                 >
-                  {showLogs ? "Hide Console Logs" : "Show Console Logs"}
+                  {showLogs ? t("hideConsoleLogs") : t("showConsoleLogs")}
                 </button>
               </div>
             </div>
@@ -298,7 +300,7 @@ export function PlaygroundView({
             <div style={{ padding: "1rem" }}>
               <div style={{ marginBottom: "0.75rem" }}>
                 <span style={{ fontSize: "0.8rem", color: "#565f89", textTransform: "uppercase", fontWeight: 700 }}>
-                  Output Result:
+                  {t("outputResultLabel")}
                 </span>
                 <pre style={{
                   backgroundColor: "#10121a",
@@ -319,7 +321,7 @@ export function PlaygroundView({
               {showLogs && result.logs && result.logs.length > 0 && (
                 <div>
                   <span style={{ fontSize: "0.8rem", color: "#565f89", textTransform: "uppercase", fontWeight: 700 }}>
-                    Sandbox Logs:
+                    {t("executionTraceLabel")}
                   </span>
                   <div style={{
                     backgroundColor: "#050608",

@@ -9,6 +9,7 @@ import {
 } from "./api.js";
 import { InstallCommand, ModeBadge } from "./components.js";
 import { DependencyTopology } from "./DependencyTopology.js";
+import { useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
 import { PlaygroundView } from "./PlaygroundView.js";
 
@@ -23,6 +24,7 @@ export function PackDetailPage({
   session?: SessionInfo | null;
   onRequireAuth?: () => void;
 }) {
+  const { t } = useI18n();
   const [detail, setDetail] = useState<PackDetail | null>(null);
   const [readme, setReadme] = useState<string | null>(null);
   const [loadingReadme, setLoadingReadme] = useState(false);
@@ -78,14 +80,14 @@ export function PackDetailPage({
     }
   };
 
-  if (error) return <div className="error-card"><p className="error">{error}</p><a className="back" href="#/">← back to catalog</a></div>;
-  if (!detail) return <div className="loading-container"><div className="spinner" /><p className="muted">loading pack specification…</p></div>;
+  if (error) return <div className="error-card"><p className="error">{error}</p><a className="back" href="#/">{t("backToCatalogLower")}</a></div>;
+  if (!detail) return <div className="loading-container"><div className="spinner" /><p className="muted">{t("loadingPackSpec")}</p></div>;
 
   return (
     <div className="detail-container">
       <div className="detail-top-bar">
         <a className="back-link" href="#/">
-          ← Back to Catalog
+          {t("backToCatalog")}
         </a>
         <div className="detail-top-actions">
           <button
@@ -95,7 +97,7 @@ export function PackDetailPage({
             disabled={starring}
           >
             <span className="star-icon">★</span>
-            <span className="star-text">{detail.starred ? "Starred" : "Star"}</span>
+            <span className="star-text">{detail.starred ? t("starred") : t("star")}</span>
             <span className="star-count">{detail.stars}</span>
           </button>
           <a
@@ -104,7 +106,7 @@ export function PackDetailPage({
             download={`${detail.name}-${detail.version}.tgz`}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>Download .tgz</span>
+            <span>{t("downloadTgz")}</span>
           </a>
         </div>
       </div>
@@ -147,31 +149,31 @@ export function PackDetailPage({
           className={`subtab-btn ${activeSubTab === "skill" ? "active" : ""}`}
           onClick={() => setActiveSubTab("skill")}
         >
-          <span>📄 SKILL.md Prompt Spec</span>
-          {readme && <span className="subtab-count">Ready</span>}
+          <span>{t("tabSkillDoc")}</span>
+          {readme && <span className="subtab-count">{t("tabSkillReady")}</span>}
         </button>
         <button
           type="button"
           className={`subtab-btn ${activeSubTab === "topology" ? "active" : ""}`}
           onClick={() => setActiveSubTab("topology")}
         >
-          <span>⎇ Dependency Topology</span>
-          <span className="subtab-count">Visual</span>
+          <span>{t("tabTopology")}</span>
+          <span className="subtab-count">{t("tabTopologyVisual")}</span>
         </button>
         <button
           type="button"
           className={`subtab-btn ${activeSubTab === "playground" ? "active" : ""}`}
           onClick={() => setActiveSubTab("playground")}
         >
-          <span>⚡ Live Playground</span>
-          <span className="subtab-count">Sandbox</span>
+          <span>{t("tabPlayground")}</span>
+          <span className="subtab-count">{t("tabPlaygroundBadge")}</span>
         </button>
         <button
           type="button"
           className={`subtab-btn ${activeSubTab === "metadata" ? "active" : ""}`}
           onClick={() => setActiveSubTab("metadata")}
         >
-          <span>⚙ Manifest & Security</span>
+          <span>{t("tabManifestSecurity")}</span>
         </button>
       </div>
 
@@ -182,22 +184,22 @@ export function PackDetailPage({
             <div className="skill-card-header">
               <div className="skill-card-title">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                <span>In-Place Skill Documentation (SKILL.md)</span>
+                <span>{t("skillCardTitle")}</span>
               </div>
-              <span className="skill-render-badge">Live Markdown</span>
+              <span className="skill-render-badge">{t("skillRenderBadge")}</span>
             </div>
             <div className="skill-card-content">
               {loadingReadme ? (
                 <div className="loading-box">
                   <div className="spinner small" />
-                  <span>Parsing SKILL.md from pack tarball…</span>
+                  <span>{t("parsingSkillMd")}</span>
                 </div>
               ) : readme ? (
                 <MarkdownView content={readme} />
               ) : (
                 <div className="empty-readme">
-                  <p>No <code>SKILL.md</code> was found at the root of this pack.</p>
-                  <p className="muted small">Skills can also be declared in subdirectories listed in <code>agent.json</code>.</p>
+                  <p>{t("emptySkillMdTitle")}</p>
+                  <p className="muted small">{t("emptySkillMdSub")}</p>
                 </div>
               )}
             </div>
@@ -219,13 +221,13 @@ export function PackDetailPage({
       {activeSubTab === "metadata" && (
         <div className="metadata-grid">
           <div className="meta-card">
-            <h3>Distribution Attributes</h3>
+            <h3>{t("distAttributesTitle")}</h3>
             <dl className="meta-dl">
-              <dt>Downloads</dt>
+              <dt>{t("metaDownloads")}</dt>
               <dd>{detail.downloads.toLocaleString()}</dd>
-              <dt>Stars</dt>
+              <dt>{t("metaStars")}</dt>
               <dd>{detail.stars}</dd>
-              <dt>Available Versions</dt>
+              <dt>{t("metaAvailableVersions")}</dt>
               <dd className="versions-list">
                 {detail.versions.map((ver) => (
                   <span key={ver} className={`ver-chip ${ver === detail.version ? "current" : ""}`}>
@@ -233,9 +235,9 @@ export function PackDetailPage({
                   </span>
                 ))}
               </dd>
-              <dt>Package Size</dt>
+              <dt>{t("metaPackageSize")}</dt>
               <dd>{(detail.size / 1024).toFixed(1)} KiB ({detail.size} bytes)</dd>
-              <dt>SHA256 Digest</dt>
+              <dt>{t("metaSha256Digest")}</dt>
               <dd className="digest-val">
                 <code>{detail.digest}</code>
               </dd>
@@ -243,9 +245,9 @@ export function PackDetailPage({
           </div>
 
           <div className="meta-card">
-            <h3>Harness & Security Verification</h3>
+            <h3>{t("securityVerificationTitle")}</h3>
             <dl className="meta-dl">
-              <dt>Harnesses</dt>
+              <dt>{t("metaCompatibleHarnesses")}</dt>
               <dd className="versions-list">
                 {(detail.manifest.compatibility && detail.manifest.compatibility.length > 0
                   ? detail.manifest.compatibility
@@ -256,23 +258,23 @@ export function PackDetailPage({
                   </span>
                 ))}
               </dd>
-              <dt>Mode</dt>
+              <dt>{t("metaMode")}</dt>
               <dd><ModeBadge mode={detail.mode} /></dd>
               {detail.manifest.endpoint && (
                 <>
-                  <dt>A2A Endpoint</dt>
+                  <dt>{t("metaA2aEndpoint")}</dt>
                   <dd>{detail.manifest.endpoint.type} ({detail.manifest.endpoint.url})</dd>
                 </>
               )}
               {detail.manifest.mcp && (
                 <>
-                  <dt>MCP Config</dt>
+                  <dt>{t("metaMcpConfig")}</dt>
                   <dd><code>{detail.manifest.mcp.config}</code></dd>
                 </>
               )}
               {(detail.manifest.secrets ?? []).length > 0 && (
                 <>
-                  <dt>Required Secrets</dt>
+                  <dt>{t("metaRequiredSecrets")}</dt>
                   <dd>
                     {detail.manifest.secrets?.map((sec) => (
                       <span key={sec} className="secret-chip">{sec}</span>
@@ -280,12 +282,12 @@ export function PackDetailPage({
                   </dd>
                 </>
               )}
-              <dt>Ed25519 Signature</dt>
+              <dt>{t("metaSignature")}</dt>
               <dd>
                 {detail.signature ? (
-                  <span className="signature-badge verified">Verified</span>
+                  <span className="signature-badge verified">{t("signatureVerified")}</span>
                 ) : (
-                  <span className="signature-badge unsigned">Unsigned</span>
+                  <span className="signature-badge unsigned">{t("signatureUnsigned")}</span>
                 )}
               </dd>
             </dl>
