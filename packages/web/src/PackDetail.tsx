@@ -246,7 +246,16 @@ export function PackDetailPage({
             <h3>Harness & Security Verification</h3>
             <dl className="meta-dl">
               <dt>Harnesses</dt>
-              <dd>{(detail.manifest.compatibility ?? []).join(", ") || "agents (default)"}</dd>
+              <dd className="versions-list">
+                {(detail.manifest.compatibility && detail.manifest.compatibility.length > 0
+                  ? detail.manifest.compatibility
+                  : ["agents"]
+                ).map((h) => (
+                  <span key={h} className="ver-chip">
+                    {h}
+                  </span>
+                ))}
+              </dd>
               <dt>Mode</dt>
               <dd><ModeBadge mode={detail.mode} /></dd>
               {detail.manifest.endpoint && (

@@ -8,9 +8,11 @@ interface TopologyProps {
 export function DependencyTopology({ detail }: TopologyProps) {
   const [activeNode, setActiveNode] = useState<string | null>(null);
 
-  const harnesses = detail.manifest.compatibility && detail.manifest.compatibility.length > 0
-    ? detail.manifest.compatibility
-    : ["agents"];
+  const rawCompat = detail.manifest.compatibility ?? [];
+  const harnesses =
+    rawCompat.length === 0 || (rawCompat.length === 1 && rawCompat[0] === "agents")
+      ? ["agents", "claude", "codex", "opencode", "openclaw", "hermes"]
+      : rawCompat;
   const skills = detail.manifest.skills && detail.manifest.skills.length > 0
     ? detail.manifest.skills
     : ["."];
@@ -38,9 +40,8 @@ export function DependencyTopology({ detail }: TopologyProps) {
             <div className="node-icon">📦</div>
             <div className="node-body">
               <div className="node-title">{detail.name}</div>
-              <div className="node-sub">v{detail.version} · {detail.mode}</div>
+              <div className="node-sub">@{detail.owner} · v{detail.version} · {detail.mode}</div>
             </div>
-            <span className="node-badge">{detail.owner}</span>
           </div>
         </div>
 

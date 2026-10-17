@@ -34,7 +34,7 @@ export function PlaygroundView({
       if (onRequireAuth) {
         onRequireAuth();
       } else {
-        setError("Authentication required: please sign in or set a Bearer token first.");
+        setError("Please sign in to run packs in the sandbox.");
       }
       return;
     }
@@ -78,9 +78,9 @@ export function PlaygroundView({
         borderRadius: "10px",
         padding: "1.5rem",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "nowrap", gap: "0.75rem" }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap" }}>
               <span>⚡ Live Sandbox Playground</span>
               <span style={{
                 fontSize: "0.75rem",
@@ -89,6 +89,7 @@ export function PlaygroundView({
                 backgroundColor: "rgba(56, 189, 248, 0.15)",
                 color: "#38bdf8",
                 border: "1px solid rgba(56, 189, 248, 0.3)",
+                whiteSpace: "nowrap",
               }}>
                 🛡️ Isolated Node/Wasm Subprocess
               </span>
@@ -97,7 +98,7 @@ export function PlaygroundView({
               Test this pack directly in an ephemeral sandbox without local installation.
             </p>
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0, whiteSpace: "nowrap" }}>
             <button
               type="button"
               onClick={() => loadPreset("audit")}
@@ -109,6 +110,7 @@ export function PlaygroundView({
                 borderRadius: "6px",
                 fontSize: "0.8rem",
                 cursor: "pointer",
+                whiteSpace: "nowrap",
               }}
             >
               Prompt Preset
@@ -124,6 +126,7 @@ export function PlaygroundView({
                 borderRadius: "6px",
                 fontSize: "0.8rem",
                 cursor: "pointer",
+                whiteSpace: "nowrap",
               }}
             >
               JSON Tool Call
@@ -148,7 +151,7 @@ export function PlaygroundView({
             }}
           >
             <span>
-              🔒 Sandbox execution requires a connected identity or Bearer token (Human via UI / AI via API).
+              🔒 Sign in to execute packs in the isolated cloud sandbox.
             </span>
             {onRequireAuth && (
               <button
@@ -165,36 +168,36 @@ export function PlaygroundView({
                   whiteSpace: "nowrap",
                 }}
               >
-                Sign In / Set Token
+                Sign In
               </button>
             )}
           </div>
         )}
 
-        <div style={{ marginBottom: "1rem" }}>
-          <label style={{ display: "block", fontSize: "0.85rem", color: "#8892b0", marginBottom: "0.5rem" }}>
+        <div style={{ marginBottom: "0.75rem" }}>
+          <label style={{ display: "block", fontSize: "0.82rem", color: "#8892b0", marginBottom: "0.4rem" }}>
             Input Payload (Text prompt or JSON):
           </label>
           <textarea
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
-            rows={5}
+            rows={3}
             style={{
               width: "100%",
               boxSizing: "border-box",
               fontFamily: "monospace",
-              fontSize: "0.9rem",
+              fontSize: "0.88rem",
               backgroundColor: "#0a0d14",
               color: "#c0caf5",
               border: "1px solid #283457",
               borderRadius: "6px",
-              padding: "0.75rem",
+              padding: "0.65rem 0.75rem",
               resize: "vertical",
             }}
           />
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
           <button
             type="button"
             onClick={handleRun}
@@ -203,15 +206,16 @@ export function PlaygroundView({
               display: "flex",
               alignItems: "center",
               gap: "0.5rem",
-              padding: "8px 20px",
+              padding: "7px 18px",
               backgroundColor: running ? "#414868" : "#8A2BE2",
               color: "#fff",
               border: "none",
               borderRadius: "6px",
               fontWeight: 600,
-              fontSize: "0.9rem",
+              fontSize: "0.88rem",
               cursor: running ? "not-allowed" : "pointer",
               transition: "all 0.2s ease",
+              whiteSpace: "nowrap",
             }}
           >
             {running ? (
@@ -268,7 +272,7 @@ export function PlaygroundView({
                   {result.ok ? "✓ SUCCESS" : "✗ FAILED"}
                 </span>
                 <span style={{ fontSize: "0.8rem", color: "#7aa2f7" }}>
-                  ⏱️ {result.executionTimeMs}ms
+                  ⏱️ {Math.max(1, result.executionTimeMs)}ms
                 </span>
                 <span style={{ fontSize: "0.8rem", color: "#565f89" }}>
                   Exit Code: {result.exitCode}
