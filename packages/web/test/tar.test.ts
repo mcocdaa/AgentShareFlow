@@ -201,3 +201,39 @@ describe("WebUI API token symmetry helpers", () => {
     }
   });
 });
+
+import { getInitialLocale, translations } from "../src/i18n.js";
+
+describe("Bilingual i18n dictionary and locale defaults", () => {
+  it("defaults to 'en' when agentshare_lang is not set and respects 'zh'", () => {
+    const store = new Map<string, string>();
+    const origWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => store.set(k, v),
+        },
+      },
+    });
+    try {
+      expect(getInitialLocale()).toBe("en");
+      store.set("agentshare_lang", "zh");
+      expect(getInitialLocale()).toBe("zh");
+    } finally {
+      Object.defineProperty(globalThis, "window", { configurable: true, value: origWindow });
+    }
+  });
+
+  it("maintains 100% key parity and non-empty strings between en and zh dictionaries", () => {
+    const enKeys = Object.keys(translations.en).sort();
+    const zhKeys = Object.keys(translations.zh).sort();
+    expect(zhKeys).toEqual(enKeys);
+    for (const key of enKeys as Array<keyof typeof translations.en>) {
+      expect(translations.en[key].length).toBeGreaterThan(0);
+      expect(translations.zh[key].length).toBeGreaterThan(0);
+    }
+  });
+});
+

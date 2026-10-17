@@ -218,6 +218,28 @@ button:hover {
   flex-shrink: 0;
 }
 
+.lang-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.lang-toggle-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
 /* Card Grid */
 .grid {
   display: grid;
@@ -637,7 +659,7 @@ button:hover {
 .pack-subtabs {
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 5px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
   overflow-x: auto;
@@ -646,13 +668,13 @@ button:hover {
 .subtab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 13px;
+  gap: 4px;
+  padding: 5px 8px;
   border-radius: 8px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.78rem;
   font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
@@ -671,8 +693,8 @@ button:hover {
 }
 
 .subtab-count {
-  font-size: 0.7rem;
-  padding: 1px 6px;
+  font-size: 0.65rem;
+  padding: 1px 5px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--muted);

@@ -1,8 +1,18 @@
 import React, { useState } from "react";
 import type { PackSummary } from "./api.js";
+import { useI18n } from "./i18n.js";
 
 export function ModeBadge({ mode }: { mode: string }) {
-  return <span className={`badge mode-${mode}`}>{mode}</span>;
+  const { t } = useI18n();
+  const label =
+    mode === "offline"
+      ? t("mode_offline")
+      : mode === "endpoint"
+        ? t("mode_endpoint")
+        : mode === "runtime"
+          ? t("mode_runtime")
+          : mode;
+  return <span className={`badge mode-${mode}`}>{label}</span>;
 }
 
 export interface InstallCommandProps {
@@ -34,6 +44,7 @@ export function InstallCommand({
   version,
   supportedHarnesses,
 }: InstallCommandProps) {
+  const { t } = useI18n();
   const [selectedHarness, setSelectedHarness] = useState<string>("agents");
   const [inProject, setInProject] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -68,6 +79,8 @@ export function InstallCommand({
               supportedHarnesses.includes("agents") ||
               opt.id === "agents";
 
+            const displayLabel = opt.id === "agents" ? t("universalHarness") : opt.label;
+
             return (
               <button
                 key={opt.id}
@@ -78,20 +91,20 @@ export function InstallCommand({
                 onClick={() => setSelectedHarness(opt.id)}
               >
                 <span className="tab-icon">{opt.icon}</span>
-                <span className="tab-label">{opt.label}</span>
-                {!isSupported && <span className="tab-pill">unverified</span>}
+                <span className="tab-label">{displayLabel}</span>
+                {!isSupported && <span className="tab-pill">{t("unverifiedPill")}</span>}
               </button>
             );
           })}
         </div>
 
-        <label className="project-checkbox" title="Install into current project .agents/ instead of global">
+        <label className="project-checkbox" title={t("projectCheckboxTitle")}>
           <input
             type="checkbox"
             checked={inProject}
             onChange={(e) => setInProject(e.target.checked)}
           />
-          <span>Project local (--project)</span>
+          <span>{t("projectCheckboxLabel")}</span>
         </label>
       </div>
 
@@ -106,12 +119,12 @@ export function InstallCommand({
           {copied ? (
             <>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>Copied!</span>
+              <span>{t("copiedBtn")}</span>
             </>
           ) : (
             <>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <span>Copy</span>
+              <span>{t("copyBtn")}</span>
             </>
           )}
         </button>
@@ -121,6 +134,7 @@ export function InstallCommand({
 }
 
 export function PackCard({ pack }: { pack: PackSummary }) {
+  const { t } = useI18n();
   return (
     <a className="card" href={`#/agents/${pack.owner}/${pack.name}`}>
       <div className="card-head">
@@ -141,7 +155,7 @@ export function PackCard({ pack }: { pack: PackSummary }) {
       <div className="card-foot">
         <span className="version-tag">v{pack.version}</span>
         <span className="stats-tag">
-          ★ {pack.stars} · {pack.downloads} downloads
+          ★ {pack.stars} · {pack.downloads} {t("downloadsSuffix")}
         </span>
       </div>
     </a>
