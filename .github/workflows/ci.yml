@@ -50,9 +50,10 @@ jobs:
             -e AGENTSHARE_TOKENS=ci-secret:admin \
             agent-share-flow:ci
           for _ in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:18787/api/v1/health && break
+            curl -fsS http://127.0.0.1:18787/healthz && break
             sleep 1
           done
-          curl -fsS http://127.0.0.1:18787/api/v1/health
+          curl -fsS http://127.0.0.1:18787/healthz
+          curl -fsS http://127.0.0.1:18787/api/packs > /dev/null
           curl -fsS http://127.0.0.1:18787/ > /dev/null
           docker rm -f asf-ci
