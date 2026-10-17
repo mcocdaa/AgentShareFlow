@@ -8,7 +8,7 @@ import {
   postShareMessage,
   postSubmission,
 } from "./api.js";
-import { useI18n } from "./i18n.js";
+import { type TranslationKey, useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
 
 function upsertMessage(list: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
@@ -50,21 +50,14 @@ const TASK_MARK: Record<ShareHandoff["tasks"][number]["status"], string> = {
   "in-progress": "[ ]",
 };
 
-const AUTH_TAG: Record<"en" | "zh", Record<ShareHandoff["authorizations"][number]["status"], string>> = {
-  en: {
-    inherited: "Inherited",
-    reauthorize: "Reauthorize",
-    unavailable: "Unavailable",
-  },
-  zh: {
-    inherited: "可继承",
-    reauthorize: "需重新授权",
-    unavailable: "不可用",
-  },
+const AUTH_TAG_KEY: Record<ShareHandoff["authorizations"][number]["status"], TranslationKey> = {
+  inherited: "authInherited",
+  reauthorize: "authReauthorize",
+  unavailable: "authUnavailable",
 };
 
 function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const openCount = handoff.tasks.filter((task) => task.status !== "done").length;
   return (
     <details className="handoff">
@@ -134,7 +127,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
               {handoff.authorizations.map((authorization) => (
                 <li key={authorization.name}>
                   <span className={authorization.status === "inherited" ? "muted" : "warn"}>
-                    {AUTH_TAG[locale][authorization.status]}
+                    {t(AUTH_TAG_KEY[authorization.status])}
                   </span>
                   : {authorization.name}
                   {authorization.note ? ` — ${authorization.note}` : ""}
