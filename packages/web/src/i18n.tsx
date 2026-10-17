@@ -770,7 +770,14 @@ description: 基于内置交接笔记回答交接项目的相关问题。适用�
   ["todo thing", "待完成集成测试"],
   ["Patch", "补丁文件"],
   ["which registry?", "发布到哪个注册中心？"],
+  ["Changelog", "变更日志"],
+  ["PR Description", "合并请求描述"],
   // Reactive error messages
+  [
+    "No executable entrypoint (index.js, main.js, run.sh) or SKILL.md found in pack.",
+    "包内未找到可执行入口（index.js、main.js、run.sh）或 SKILL.md。",
+  ],
+  ["No executable entrypoint or SKILL.md found", "未找到可执行入口或 SKILL.md"],
   ["agent.json not found in the tarball", "归档包中未找到 agent.json"],
   ["agent.json is not valid JSON", "agent.json 不是有效的 JSON"],
   ["agent.json must be an object", "agent.json 必须是 JSON 对象"],
@@ -783,14 +790,21 @@ description: 基于内置交接笔记回答交接项目的相关问题。适用�
     "需要填写 API 访问令牌（或先登录账户）",
   ],
   ["Username and password are required.", "请输入用户名和密码。"],
+  ["username and password are required", "请输入用户名和密码。"],
   ["Please paste a valid Bearer token.", "请粘贴有效的访问令牌。"],
   ["Invalid access token.", "无效的访问令牌。"],
   ["Please sign in to run packs in the sandbox.", "请先登录以在沙箱中运行技能包。"],
   ["unauthorized", "未授权访问，请先登录"],
-  ["invalid credentials", "用户名或密码错误"],
+  ["invalid username or password", "用户名或密码错误"],
   ["Invalid username or password", "用户名或密码错误"],
+  ["invalid credentials", "用户名或密码错误"],
   ["username already exists", "用户名已存在"],
   ["User already exists", "用户名已存在"],
+  ["password must be at least 4 characters", "密码长度至少为 4 位字符"],
+  [
+    "invalid username: must be lowercase alphanumeric or hyphens (1-39 chars, no leading/trailing hyphen)",
+    "无效的用户名：必须为 1-39 位小写字母、数字或连字符（不能以连字符开头或结尾）",
+  ],
   ["not found", "未找到请求的资源"],
   ["rate limit exceeded", "请求过于频繁，请稍后再试"],
   ["share is offline", "共享会话当前离线"],
@@ -798,11 +812,17 @@ description: 基于内置交接笔记回答交接项目的相关问题。适用�
 ];
 
 const EN_TO_ZH_MAP = new Map<string, string>();
+const EN_LOWER_TO_ZH_MAP = new Map<string, string>();
 const ZH_TO_EN_MAP = new Map<string, string>();
 for (const [enText, zhText] of DYNAMIC_PAIRS) {
-  EN_TO_ZH_MAP.set(enText.replace(/\r\n/g, "\n").trim(), zhText);
-  if (!ZH_TO_EN_MAP.has(zhText.replace(/\r\n/g, "\n").trim())) {
-    ZH_TO_EN_MAP.set(zhText.replace(/\r\n/g, "\n").trim(), enText);
+  const normEn = enText.replace(/\r\n/g, "\n").trim();
+  const normZh = zhText.replace(/\r\n/g, "\n").trim();
+  EN_TO_ZH_MAP.set(normEn, zhText);
+  if (!EN_LOWER_TO_ZH_MAP.has(normEn.toLowerCase())) {
+    EN_LOWER_TO_ZH_MAP.set(normEn.toLowerCase(), zhText);
+  }
+  if (!ZH_TO_EN_MAP.has(normZh)) {
+    ZH_TO_EN_MAP.set(normZh, enText);
   }
 }
 
@@ -810,11 +830,24 @@ export function translatePackText(text: string, locale: Locale): string {
   if (!text) return text;
   const normalized = text.replace(/\r\n/g, "\n").trim();
   if (locale === "zh") {
-    const direct = EN_TO_ZH_MAP.get(normalized);
+    const direct = EN_TO_ZH_MAP.get(normalized) ?? EN_LOWER_TO_ZH_MAP.get(normalized.toLowerCase());
     if (direct !== undefined) return direct;
-    const missingMatch = /^agent\.json is missing "(.+)"$/.exec(normalized);
+    const missingMatch = /^agent\.json is missing "(.+)"$/i.exec(normalized);
     if (missingMatch) {
       return `agent.json 缺少必填字段 "${missingMatch[1]}"`;
+    }
+    const immutableMatch = /^(.+@.+) already exists, releases are immutable$/i.exec(normalized);
+    if (immutableMatch) {
+      return `${immutableMatch[1]} 已存在，发布版本不可篡改`;
+    }
+    const registeredMatch = /^user "(.+)" is already registered$/i.exec(normalized);
+    if (registeredMatch) {
+      return `用户 "${registeredMatch[1]}" 已注册`;
+    }
+    const forbiddenPublishMatch =
+      /^forbidden: you do not have permission to publish to (.+)$/i.exec(normalized);
+    if (forbiddenPublishMatch) {
+      return `禁止访问：您没有权限发布到 ${forbiddenPublishMatch[1]}`;
     }
     return text;
   }
@@ -823,6 +856,18 @@ export function translatePackText(text: string, locale: Locale): string {
   const missingZhMatch = /^agent\.json 缺少必填字段 "(.+)"$/.exec(normalized);
   if (missingZhMatch) {
     return `agent.json is missing "${missingZhMatch[1]}"`;
+  }
+  const immutableZhMatch = /^(.+@.+) 已存在，发布版本不可篡改$/.exec(normalized);
+  if (immutableZhMatch) {
+    return `${immutableZhMatch[1]} already exists, releases are immutable`;
+  }
+  const registeredZhMatch = /^用户 "(.+)" 已注册$/.exec(normalized);
+  if (registeredZhMatch) {
+    return `user "${registeredZhMatch[1]}" is already registered`;
+  }
+  const forbiddenPublishZhMatch = /^禁止访问：您没有权限发布到 (.+)$/.exec(normalized);
+  if (forbiddenPublishZhMatch) {
+    return `forbidden: you do not have permission to publish to ${forbiddenPublishZhMatch[1]}`;
   }
   return text;
 }

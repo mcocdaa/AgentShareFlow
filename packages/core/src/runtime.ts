@@ -161,22 +161,113 @@ export async function executeInSandbox(
 
   // If no script found, check if it's an offline SKILL pack to simulate
   if (!resolvedScript) {
-    const skillPath = path.join(packDir, "SKILL.md");
-    if (fs.existsSync(skillPath)) {
-      const rootReal = fs.realpathSync(packDir);
-      const skillReal = fs.realpathSync(skillPath);
+    const rootReal = fs.realpathSync(packDir);
+    const skillRealPaths: string[] = [];
+
+    const addSkillCandidate = (
+      candidate: string,
+    ): { ok: true } | { ok: false; error: RuntimeExecutionResult } => {
+      const resolvedCandidate = path.resolve(candidate);
+      if (!resolvedCandidate.startsWith(path.resolve(packDir) + path.sep)) {
+        return {
+          ok: false,
+          error: {
+            ok: false,
+            output: null,
+            logs: ["Error: SKILL.md path escapes pack directory."],
+            executionTimeMs: elapsedMs(),
+            exitCode: 1,
+            sandboxed: true,
+            error: "SKILL.md path escapes pack directory",
+          },
+        };
+      }
+      const lstat = fs.lstatSync(resolvedCandidate, { throwIfNoEntry: false });
+      if (!lstat) return { ok: true };
+      let skillReal: string;
+      try {
+        skillReal = fs.realpathSync(resolvedCandidate);
+      } catch {
+        return {
+          ok: false,
+          error: {
+            ok: false,
+            output: null,
+            logs: ["Error: SKILL.md symlink escapes pack directory."],
+            executionTimeMs: elapsedMs(),
+            exitCode: 1,
+            sandboxed: true,
+            error: "SKILL.md symlink escapes pack directory",
+          },
+        };
+      }
       if (!skillReal.startsWith(rootReal + path.sep)) {
         return {
           ok: false,
-          output: null,
-          logs: ["Error: SKILL.md symlink escapes pack directory."],
-          executionTimeMs: elapsedMs(),
-          exitCode: 1,
-          sandboxed: true,
-          error: "SKILL.md symlink escapes pack directory",
+          error: {
+            ok: false,
+            output: null,
+            logs: ["Error: SKILL.md symlink escapes pack directory."],
+            executionTimeMs: elapsedMs(),
+            exitCode: 1,
+            sandboxed: true,
+            error: "SKILL.md symlink escapes pack directory",
+          },
         };
       }
-      return simulateSkillExecution(packDir, skillReal, manifest, options.input, startTime);
+      if (fs.statSync(skillReal).isFile() && !skillRealPaths.includes(skillReal)) {
+        skillRealPaths.push(skillReal);
+      }
+      return { ok: true };
+    };
+
+    const rootCheck = addSkillCandidate(path.join(packDir, "SKILL.md"));
+    if (!rootCheck.ok) return rootCheck.error;
+
+    if (skillRealPaths.length === 0 && manifest?.skills) {
+      for (const skillEntry of manifest.skills as Array<string | { path?: string }>) {
+        const rel =
+          typeof skillEntry === "string"
+            ? skillEntry
+            : typeof skillEntry === "object" &&
+                skillEntry !== null &&
+                typeof skillEntry.path === "string"
+              ? skillEntry.path
+              : "";
+        if (!rel) continue;
+        const subSkillCheck = addSkillCandidate(path.join(packDir, rel, "SKILL.md"));
+        if (!subSkillCheck.ok) return subSkillCheck.error;
+        const directCheck = addSkillCandidate(path.join(packDir, rel));
+        if (!directCheck.ok) return directCheck.error;
+      }
+    }
+
+    if (skillRealPaths.length === 0) {
+      const scanSkillsDir = (dir: string, depth = 0): RuntimeExecutionResult | null => {
+        if (depth > 4 || !fs.existsSync(dir)) return null;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const ent of entries) {
+          const full = path.join(dir, ent.name);
+          if (ent.name === "SKILL.md") {
+            const check = addSkillCandidate(full);
+            if (!check.ok) return check.error;
+          } else if (
+            ent.isDirectory() &&
+            !ent.name.startsWith(".") &&
+            ent.name !== "node_modules"
+          ) {
+            const err = scanSkillsDir(full, depth + 1);
+            if (err) return err;
+          }
+        }
+        return null;
+      };
+      const scanError = scanSkillsDir(packDir);
+      if (scanError) return scanError;
+    }
+
+    if (skillRealPaths.length > 0) {
+      return simulateSkillExecution(packDir, skillRealPaths, manifest, options.input, startTime);
     }
 
     return {
@@ -365,12 +456,14 @@ export async function executeInSandbox(
  */
 async function simulateSkillExecution(
   packDir: string,
-  skillPath: string,
+  skillPath: string | string[],
   manifest: AgentManifest | null,
   input: unknown,
   startTime: number,
 ): Promise<RuntimeExecutionResult> {
-  const content = await fsp.readFile(skillPath, "utf8");
+  const paths = Array.isArray(skillPath) ? skillPath : [skillPath];
+  const contents = await Promise.all(paths.map((p) => fsp.readFile(p, "utf8")));
+  const primaryContent = contents[0] ?? "";
   const inputPrompt =
     typeof input === "string"
       ? input
@@ -379,12 +472,22 @@ async function simulateSkillExecution(
       : JSON.stringify(input ?? {});
 
   // Extract title/description from frontmatter or heading
-  const headingMatch = content.match(/^#+\s*(.+)$/m);
-  const skillTitle = headingMatch?.[1]?.trim() ?? manifest?.title ?? "Agent Skill";
+  const headingMatch = primaryContent.match(/^#+\s*(.+)$/m);
+  const skillTitle =
+    paths.length > 1
+      ? manifest?.title ?? headingMatch?.[1]?.trim() ?? "Agent Skill"
+      : headingMatch?.[1]?.trim() ?? manifest?.title ?? "Agent Skill";
+
+  const rootReal = fs.realpathSync(packDir);
+  const loadedLogs = paths.map((p, idx) => {
+    const rel = path.relative(rootReal, p).replace(/\\/g, "/");
+    const label = rel && !rel.startsWith("..") ? rel : path.basename(p);
+    return `[Sandbox Runtime] Loaded ${label} (${(contents[idx] ?? "").length} bytes).`;
+  });
 
   const logs = [
     `[Sandbox Runtime] Initialized offline skill emulation sandbox.`,
-    `[Sandbox Runtime] Loaded ${path.basename(skillPath)} (${content.length} bytes).`,
+    ...loadedLogs,
     `[Sandbox Runtime] Processing input query: "${inputPrompt.slice(0, 100)}${inputPrompt.length > 100 ? "..." : ""}"`,
   ];
 

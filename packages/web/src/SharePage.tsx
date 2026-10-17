@@ -178,7 +178,10 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
   const [changes, setChanges] = useState("");
   const [openQuestions, setOpenQuestions] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [submissionNote, setSubmissionNote] = useState<string | null>(null);
+  const [submissionState, setSubmissionState] = useState<{
+    id: number;
+    hasSession: boolean;
+  } | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -255,11 +258,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         ...(name.trim() === "" ? {} : { authorName: name.trim() }),
         ...(sessionId === undefined ? {} : { sessionId }),
       });
-      setSubmissionNote(
-        `${t("submittedPrefix")}${created.id}${
-          sessionId === undefined ? t("submittedNoSessionHint") : ""
-        }`,
-      );
+      setSubmissionState({ id: created.id, hasSession: sessionId !== undefined });
       setSummary("");
       setChanges("");
       setOpenQuestions("");
@@ -268,7 +267,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
     } finally {
       setSubmitting(false);
     }
-  }, [summary, changes, openQuestions, submitting, id, name, sessionId, t]);
+  }, [summary, changes, openQuestions, submitting, id, name, sessionId]);
 
   if (error && !meta) return <p className="error">{td(error)}</p>;
   if (!meta) return <p className="muted">{t("loadingCatalog")}</p>;
@@ -397,7 +396,13 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
               {submitting ? t("submittingBtn") : t("submitBtn")}
             </button>
           </form>
-          {submissionNote && <p className="muted small">{submissionNote}</p>}
+          {submissionState && (
+            <p className="muted small">
+              {`${t("submittedPrefix")}${submissionState.id}${
+                submissionState.hasSession ? "" : t("submittedNoSessionHint")
+              }`}
+            </p>
+          )}
         </details>
       )}
     </div>

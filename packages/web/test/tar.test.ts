@@ -265,6 +265,21 @@ describe("Bilingual i18n dictionary and locale defaults", () => {
     expect(translatePackText("agent.json 缺少必填字段 \"version\"", "en")).toBe(
       "agent.json is missing \"version\"",
     );
+    expect(translatePackText("invalid username or password", "zh")).toBe("用户名或密码错误");
+    expect(translatePackText("Invalid username or password", "zh")).toBe("用户名或密码错误");
+    expect(translatePackText("用户名或密码错误", "en")).toBe("invalid username or password");
+    expect(
+      translatePackText("mcocdaa/release-helper@0.1.0 already exists, releases are immutable", "zh"),
+    ).toBe("mcocdaa/release-helper@0.1.0 已存在，发布版本不可篡改");
+    expect(translatePackText("mcocdaa/release-helper@0.1.0 已存在，发布版本不可篡改", "en")).toBe(
+      "mcocdaa/release-helper@0.1.0 already exists, releases are immutable",
+    );
+    expect(
+      translatePackText(
+        "No executable entrypoint (index.js, main.js, run.sh) or SKILL.md found in pack.",
+        "zh",
+      ),
+    ).toBe("包内未找到可执行入口（index.js、main.js、run.sh）或 SKILL.md。");
     expect(translateEvidenceKind("file", "zh")).toBe("文件");
     expect(translateEvidenceKind("command", "zh")).toBe("命令");
     expect(translateEvidenceKind("url", "zh")).toBe("链接");

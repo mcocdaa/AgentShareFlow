@@ -85,8 +85,42 @@ function AppContent() {
 
   const runSearch = useCallback((value: string) => {
     setLoading(true);
-    searchPacks(value)
-      .then((result) => setItems(result.items))
+    const trimmed = value.trim();
+    const hasNonAscii = /[^\x00-\x7F]/.test(trimmed);
+    const matchesPack = (pack: PackSummary, q: string): boolean => {
+      const lower = q.toLowerCase();
+      const zhTitle = translatePackText(pack.title, "zh").toLowerCase();
+      const zhDesc = translatePackText(pack.description, "zh").toLowerCase();
+      const zhTags = pack.tags.map((tag) => translatePackText(tag, "zh").toLowerCase());
+      return (
+        pack.name.toLowerCase().includes(lower) ||
+        pack.owner.toLowerCase().includes(lower) ||
+        pack.title.toLowerCase().includes(lower) ||
+        pack.description.toLowerCase().includes(lower) ||
+        pack.tags.some((tag) => tag.toLowerCase().includes(lower)) ||
+        zhTitle.includes(lower) ||
+        zhDesc.includes(lower) ||
+        zhTags.some((tag) => tag.includes(lower))
+      );
+    };
+
+    searchPacks(hasNonAscii ? "" : trimmed)
+      .then(async (result) => {
+        if (!trimmed) {
+          setItems(result.items);
+          return;
+        }
+        if (hasNonAscii) {
+          setItems(result.items.filter((pack) => matchesPack(pack, trimmed)));
+          return;
+        }
+        if (result.items.length > 0) {
+          setItems(result.items);
+          return;
+        }
+        const all = await searchPacks("");
+        setItems(all.items.filter((pack) => matchesPack(pack, trimmed)));
+      })
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
   }, []);
