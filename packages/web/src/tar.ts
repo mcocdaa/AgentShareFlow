@@ -32,7 +32,7 @@ export function readTarEntry(tar: Uint8Array, name: string): Uint8Array | undefi
   return undefined;
 }
 
-export function extractManifestFromTarball(bytes: Uint8Array): unknown {
+export function extractManifestFromTarball(bytes: Uint8Array, locale: "en" | "zh" = "en"): unknown {
   let tar: Uint8Array;
   try {
     tar = gunzipSync(bytes);
@@ -40,10 +40,16 @@ export function extractManifestFromTarball(bytes: Uint8Array): unknown {
     tar = bytes;
   }
   const entry = readTarEntry(tar, "agent.json");
-  if (entry === undefined) throw new Error("agent.json not found in the tarball");
+  if (entry === undefined) {
+    throw new Error(
+      locale === "zh" ? "归档包中未找到 agent.json" : "agent.json not found in the tarball",
+    );
+  }
   try {
     return JSON.parse(new TextDecoder().decode(entry));
   } catch {
-    throw new Error("agent.json is not valid JSON");
+    throw new Error(
+      locale === "zh" ? "agent.json 不是有效的 JSON" : "agent.json is not valid JSON",
+    );
   }
 }

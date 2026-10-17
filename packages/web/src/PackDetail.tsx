@@ -73,7 +73,7 @@ export function PackDetailPage({
       if (/unauthorized|401/i.test(msg) && onRequireAuth) {
         onRequireAuth();
       } else {
-        alert(`Star failed: ${msg}`);
+        alert(`${t("starFailedPrefix")} ${msg}`);
       }
     } finally {
       setStarring(false);
@@ -236,7 +236,7 @@ export function PackDetailPage({
                 ))}
               </dd>
               <dt>{t("metaPackageSize")}</dt>
-              <dd>{(detail.size / 1024).toFixed(1)} KiB ({detail.size} bytes)</dd>
+              <dd>{(detail.size / 1024).toFixed(1)} KiB ({detail.size} {t("inspectorBytes")})</dd>
               <dt>{t("metaSha256Digest")}</dt>
               <dd className="digest-val">
                 <code>{detail.digest}</code>

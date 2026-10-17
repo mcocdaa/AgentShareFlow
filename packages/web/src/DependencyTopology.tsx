@@ -165,6 +165,12 @@ export function DependencyTopology({ detail }: TopologyProps) {
               <p>{t("inspectorMcpDescPrefix")} <code>{mcpConfig}</code>. {t("inspectorMcpDescSuffix")}</p>
             </div>
           )}
+          {activeNode === "endpoint" && detail.manifest.endpoint && (
+            <div className="inspector-content">
+              <strong>{t("inspectorEndpointTitle")}: {detail.manifest.endpoint.type}</strong>
+              <p>{t("inspectorEndpointDescPrefix")} <code>{detail.manifest.endpoint.url}</code></p>
+            </div>
+          )}
           {activeNode.startsWith("sec-") && (
             <div className="inspector-content">
               <strong>{t("inspectorSecretTitle")}: {activeNode.slice(4)}</strong>
