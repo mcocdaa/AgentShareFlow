@@ -32,3 +32,27 @@ jobs:
         run: pnpm test
       - name: Typecheck
         run: pnpm typecheck
+
+  docker:
+    name: Docker (compose config + build + health smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate docker-compose.yml
+        env:
+          AGENTSHARE_TOKENS: ci-secret:admin
+        run: docker compose config -q
+      - name: Build & smoke test container
+        run: |
+          docker build -t agent-share-flow:ci .
+          docker run -d --name asf-ci -p 18787:8787 \
+            -e AGENTSHARE_TOKENS=ci-secret:admin \
+            agent-share-flow:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18787/api/v1/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18787/api/v1/health
+          curl -fsS http://127.0.0.1:18787/ > /dev/null
+          docker rm -f asf-ci
