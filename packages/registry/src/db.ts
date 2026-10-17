@@ -341,7 +341,34 @@ export class RegistryDb {
   }
 
   search(query: string, mode?: string): PackRow[] {
-    const like = `%${query.toLowerCase()}%`;
+    const zhKeywordMap: ReadonlyArray<[string, string]> = [
+      ["编排", "orchestrat"],
+      ["工作流", "flow"],
+      ["生态", "flow"],
+      ["运维", "devops"],
+      ["自动化", "automation"],
+      ["健康", "health"],
+      ["安全", "security"],
+      ["审计", "audit"],
+      ["发布", "release"],
+      ["变更", "changelog"],
+      ["日志", "changelog"],
+      ["合并请求", "pull-request"],
+      ["交接", "handoff"],
+      ["演示", "demo"],
+      ["示例", "example"],
+      ["新人", "onboarding"],
+      ["上手", "onboarding"],
+      ["助手", "helper"],
+    ];
+    let effectiveQuery = query.toLowerCase();
+    for (const [zhTerm, enTerm] of zhKeywordMap) {
+      if (effectiveQuery.includes(zhTerm)) {
+        effectiveQuery = enTerm;
+        break;
+      }
+    }
+    const like = `%${effectiveQuery}%`;
     const modeFilter = mode ? "AND p.mode = ?" : "";
     const params: string[] = mode ? [like, like, like, like, mode] : [like, like, like, like];
     return this.db

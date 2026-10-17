@@ -137,4 +137,50 @@ This skill reviews code and looks for security flaws.
     expect(symlinkRes.ok).toBe(false);
     expect(symlinkRes.error).toMatch(/symlink escapes pack directory/i);
   });
+
+  it("simulates execution for multi-skill packs without a root SKILL.md", async () => {
+    const dir = await temporaryDirectory("runtime-multiskill-");
+    await fs.mkdir(path.join(dir, "skills", "changelog"), { recursive: true });
+    await fs.mkdir(path.join(dir, "skills", "pr-description"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, "skills", "changelog", "SKILL.md"),
+      "# Changelog\nDraft the next release section.\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(dir, "skills", "pr-description", "SKILL.md"),
+      "# PR Description\nWrite a pull request description.\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(dir, "agent.json"),
+      JSON.stringify({
+        spec: "agent-pack/v0",
+        name: "release-helper",
+        version: "0.1.0",
+        title: "Release Helper",
+        description: "Two-skill pack for shipping",
+        mode: "offline",
+        skills: ["skills/changelog", "skills/pr-description"],
+      }),
+      "utf8",
+    );
+
+    const res = await executeInSandbox({
+      packDir: dir,
+      input: "Please execute the Release Helper skill for a project security audit.",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.sandboxed).toBe(true);
+    expect(res.output).toMatchObject({
+      simulated: true,
+      skill: "Release Helper",
+      pack: "release-helper",
+      version: "0.1.0",
+      status: "completed",
+    });
+    expect(res.logs.some((l) => l.includes("skills/changelog/SKILL.md"))).toBe(true);
+    expect(res.logs.some((l) => l.includes("skills/pr-description/SKILL.md"))).toBe(true);
+  });
 });

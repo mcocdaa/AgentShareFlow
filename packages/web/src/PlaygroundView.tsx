@@ -16,41 +16,105 @@ function buildDefaultPrompt(detail: PackDetail, loc: Locale): string {
     : `${dict.defaultSkillPromptPrefix}${localizedTitle}${dict.defaultSkillPromptSuffix}`;
 }
 
-function formatPlaygroundLog(log: string, loc: Locale, detail: PackDetail): string {
+function swapPromptText(str: string, loc: Locale, detail: PackDetail): string {
   const zhDefault = buildDefaultPrompt(detail, "zh");
   const enDefault = buildDefaultPrompt(detail, "en");
-  if (loc === "en") {
-    return log.replace(zhDefault, enDefault);
+  const rawZhDefault = `${translations.zh.defaultSkillPromptPrefix}${detail.title}${translations.zh.defaultSkillPromptSuffix}`;
+  const zhPreset = translations.zh.presetAuditPromptText;
+  const enPreset = translations.en.presetAuditPromptText;
+  const zhRuntime = translations.zh.defaultRuntimeQuery;
+  const enRuntime = translations.en.defaultRuntimeQuery;
+  if (loc === "zh") {
+    return str
+      .replace(enDefault, zhDefault)
+      .replace(rawZhDefault, zhDefault)
+      .replace(enPreset, zhPreset)
+      .replace(enRuntime, zhRuntime);
   }
-  if (log === "[Sandbox Runtime] Initialized offline skill emulation sandbox.") {
+  return str
+    .replace(zhDefault, enDefault)
+    .replace(rawZhDefault, enDefault)
+    .replace(zhPreset, enPreset)
+    .replace(zhRuntime, enRuntime);
+}
+
+function formatPlaygroundLog(log: string, loc: Locale, detail: PackDetail): string {
+  const swapped = swapPromptText(log, loc, detail);
+  if (loc === "en") {
+    return translatePackText(
+      swapped
+        .replace(
+          /^(\[stdout\]\s*)?\[编排器\] 已加载技能包: (.+)$/,
+          "$1[Orchestrator] Loaded pack: $2",
+        )
+        .replace(
+          /^(\[stdout\]\s*)?\[编排器\] 输入指令: (.+)$/,
+          "$1[Orchestrator] Input prompt: $2",
+        )
+        .replace("编排预演已成功完成", "Orchestration dry-run completed successfully"),
+      "en",
+    );
+  }
+  if (swapped === "[Sandbox Runtime] Initialized offline skill emulation sandbox.") {
     return "[沙箱运行时] 已初始化离线技能仿真沙箱环境。";
   }
-  const loadedMatch = /^\[Sandbox Runtime\] Loaded (.+) \((\d+) bytes\)\.$/.exec(log);
+  const loadedMatch = /^\[Sandbox Runtime\] Loaded (.+) \((\d+) bytes\)\.$/.exec(swapped);
   if (loadedMatch) {
     return `[沙箱运行时] 已加载 ${loadedMatch[1]} (${loadedMatch[2]} 字节)。`;
   }
-  const queryMatch = /^\[Sandbox Runtime\] Processing input query: "([\s\S]*)"$/.exec(log);
+  const queryMatch = /^\[Sandbox Runtime\] Processing input query: "([\s\S]*)"$/.exec(swapped);
   if (queryMatch) {
-    return `[沙箱运行时] 正在处理输入指令: "${translatePackText(queryMatch[1] ?? "", "zh")}"`;
+    const inner = swapPromptText(translatePackText(queryMatch[1] ?? "", "zh"), "zh", detail);
+    return `[沙箱运行时] 正在处理输入指令: "${inner}"`;
   }
-  if (log === "[Sandbox Runtime] Execution successfully concluded with status: completed.") {
+  if (swapped === "[Sandbox Runtime] Execution successfully concluded with status: completed.") {
     return "[沙箱运行时] 执行已成功完成，状态: 已完成。";
   }
-  return log.replace(enDefault, zhDefault);
+  const orchLoadedMatch = /^(\[stdout\]\s*)?\[Orchestrator\] Loaded pack: (.+)$/.exec(swapped);
+  if (orchLoadedMatch) {
+    return `${orchLoadedMatch[1] ?? ""}[编排器] 已加载技能包: ${orchLoadedMatch[2]}`;
+  }
+  const orchPromptMatch = /^(\[stdout\]\s*)?\[Orchestrator\] Input prompt: (.+)$/.exec(swapped);
+  if (orchPromptMatch) {
+    return `${orchPromptMatch[1] ?? ""}[编排器] 输入指令: ${swapPromptText(orchPromptMatch[2] ?? "", "zh", detail)}`;
+  }
+  const sbMountMatch = /^(\[stdout\]\s*)?\[Sandbox\] Mounting pack (.+) \(read-only\)\.\.\.$/.exec(
+    swapped,
+  );
+  if (sbMountMatch) {
+    return `${sbMountMatch[1] ?? ""}[沙箱] 正在挂载技能包 ${sbMountMatch[2]} (只读)...`;
+  }
+  const sbVerifyMatch =
+    /^(\[stdout\]\s*)?\[Sandbox\] Verifying Ed25519 signature & manifest integrity: OK$/.exec(
+      swapped,
+    );
+  if (sbVerifyMatch) {
+    return `${sbVerifyMatch[1] ?? ""}[沙箱] 正在校验 Ed25519 签名与清单完整性: 通过`;
+  }
+  const sbAuditMatch = /^(\[stdout\]\s*)?\[Sandbox\] Executing audit task: (.+)$/.exec(swapped);
+  if (sbAuditMatch) {
+    return `${sbAuditMatch[1] ?? ""}[沙箱] 正在执行审计任务: ${swapPromptText(sbAuditMatch[2] ?? "", "zh", detail)}`;
+  }
+  return translatePackText(
+    swapped
+      .replace("Orchestration dry-run completed successfully", "编排预演已成功完成")
+      .replace('"status": "verified"', '"status": "已验证"')
+      .replace('"ed25519Signature": "verified"', '"ed25519Signature": "已验证"')
+      .replace(
+        '"securityScan": "0 high / 0 medium findings"',
+        '"securityScan": "0 个高危 / 0 个中危发现"',
+      ),
+    "zh",
+  );
 }
 
 function formatPlaygroundOutput(output: unknown, loc: Locale, detail: PackDetail): unknown {
   if (typeof output !== "object" || output === null) return output;
   const rec = output as Record<string, unknown>;
-  const zhDefault = buildDefaultPrompt(detail, "zh");
-  const enDefault = buildDefaultPrompt(detail, "en");
   if (rec.simulated === true && typeof rec.skill === "string") {
     const skillLabel = translatePackText(rec.skill, loc);
     const rawInput = typeof rec.input === "string" ? rec.input : "";
-    const inputStr =
-      loc === "zh"
-        ? rawInput.replace(enDefault, zhDefault)
-        : rawInput.replace(zhDefault, enDefault);
+    const inputStr = swapPromptText(rawInput, loc, detail);
     if (loc === "zh") {
       return {
         ...rec,
@@ -68,17 +132,49 @@ function formatPlaygroundOutput(output: unknown, loc: Locale, detail: PackDetail
       response: `Simulated response from ${skillLabel}: Execution completed successfully in sandboxed skill environment for query: "${inputStr}".`,
     };
   }
-  if (typeof rec.task === "string") {
-    const taskStr =
-      loc === "zh"
-        ? rec.task.replace(enDefault, zhDefault)
-        : rec.task.replace(zhDefault, enDefault);
-    return {
-      ...rec,
-      task: taskStr,
-    };
+  const next: Record<string, unknown> = { ...rec };
+  if (typeof next.task === "string") {
+    next.task = swapPromptText(next.task, loc, detail);
   }
-  return output;
+  if (typeof next.input === "string") {
+    next.input = swapPromptText(next.input, loc, detail);
+  }
+  if (typeof next.prompt === "string") {
+    next.prompt = swapPromptText(next.prompt, loc, detail);
+  }
+  if (typeof next.status === "string") {
+    if (next.status === "verified" || next.status === "已验证") {
+      next.status = loc === "zh" ? "已验证" : "verified";
+    } else if (next.status === "completed" || next.status === "已完成") {
+      next.status = loc === "zh" ? "已完成" : "completed";
+    }
+  }
+  if (typeof next.ed25519Signature === "string") {
+    if (next.ed25519Signature === "verified" || next.ed25519Signature === "已验证") {
+      next.ed25519Signature = loc === "zh" ? "已验证" : "verified";
+    }
+  }
+  if (typeof next.securityScan === "string") {
+    if (
+      next.securityScan === "0 high / 0 medium findings" ||
+      next.securityScan === "0 个高危 / 0 个中危发现"
+    ) {
+      next.securityScan = loc === "zh" ? "0 个高危 / 0 个中危发现" : "0 high / 0 medium findings";
+    }
+  }
+  if (typeof next.message === "string") {
+    next.message =
+      loc === "zh"
+        ? swapPromptText(next.message, loc, detail).replace(
+            "Orchestration dry-run completed successfully",
+            "编排预演已成功完成",
+          )
+        : swapPromptText(next.message, loc, detail).replace(
+            "编排预演已成功完成",
+            "Orchestration dry-run completed successfully",
+          );
+  }
+  return next;
 }
 
 export function PlaygroundView({
