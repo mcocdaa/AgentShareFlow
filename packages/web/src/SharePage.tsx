@@ -255,8 +255,8 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         ...(sessionId === undefined ? {} : { sessionId }),
       });
       setSubmissionNote(
-        `Submitted #${created.id}${
-          sessionId === undefined ? " (send a message in the chat to receive updates)" : ""
+        `${t("submittedPrefix")}${created.id}${
+          sessionId === undefined ? t("submittedNoSessionHint") : ""
         }`,
       );
       setSummary("");
@@ -267,7 +267,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
     } finally {
       setSubmitting(false);
     }
-  }, [summary, changes, openQuestions, submitting, id, name, sessionId]);
+  }, [summary, changes, openQuestions, submitting, id, name, sessionId, t]);
 
   if (error && !meta) return <p className="error">{error}</p>;
   if (!meta) return <p className="muted">{t("loadingCatalog")}</p>;
@@ -285,7 +285,9 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         <span className="ref">
           {meta.owner} · {meta.title}
         </span>
-        <span className={`badge status-${status}`}>{status}</span>
+        <span className={`badge status-${status}`}>
+          {t(`shareStatus_${status}`)}
+        </span>
       </div>
       <p className="muted small">
         {status === "revoked"
@@ -304,10 +306,10 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
           <div key={message.id} className={`bubble ${message.role}`}>
             <div className="bubble-author">
               {message.role === "visitor"
-                ? (name || "Visitor")
+                ? (name || t("roleVisitor"))
                 : message.role === "agent"
-                  ? (meta.agent?.name ?? "Agent")
-                  : "System"}
+                  ? (meta.agent?.name ?? t("roleAgent"))
+                  : t("roleSystem")}
             </div>
             {message.role === "system" ? (
               <div className="bubble-system-text">{message.content}</div>
@@ -318,7 +320,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         ))}
         {streamText && (
           <div className="bubble agent streaming">
-            <div className="bubble-author">{meta.agent?.name ?? "Agent"}</div>
+            <div className="bubble-author">{meta.agent?.name ?? t("roleAgent")}</div>
             <MarkdownView content={streamText} />
             <span className="typing-cursor" />
           </div>

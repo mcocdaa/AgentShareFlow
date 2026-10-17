@@ -235,5 +235,14 @@ describe("Bilingual i18n dictionary and locale defaults", () => {
       expect(translations.zh[key].length).toBeGreaterThan(0);
     }
   });
+
+  it("localizes tarball extraction errors when locale is zh", () => {
+    expect(() =>
+      extractManifestFromTarball(gzipSync(tar([entry("SKILL.md", "# x\n")])), "zh"),
+    ).toThrow("归档包中未找到 agent.json");
+    expect(() =>
+      extractManifestFromTarball(tar([entry("agent.json", "{oops")]), "zh"),
+    ).toThrow("agent.json 不是有效的 JSON");
+  });
 });
 

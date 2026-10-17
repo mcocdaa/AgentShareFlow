@@ -270,83 +270,38 @@ function AppContent() {
 
       {authModalOpen && (
         <div
-          className="identity-modal-backdrop"
+          className="modal-backdrop identity-modal-backdrop"
           onClick={() => setAuthModalOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(5, 7, 12, 0.78)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "16px",
-          }}
         >
           <div
-            className="identity-modal"
+            className="modal-card identity-modal"
             onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: "480px",
-              background: "var(--panel)",
-              border: "1px solid var(--border-focus)",
-              borderRadius: "14px",
-              padding: "24px",
-              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.6)",
-            }}
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "12px",
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
-                {t("authModalTitle")}
-              </h3>
+            <div className="modal-header">
+              <h3>{t("authModalTitle")}</h3>
               <button
                 type="button"
+                className="modal-close"
                 onClick={() => setAuthModalOpen(false)}
-                style={{ padding: "4px 10px", fontSize: "0.85rem" }}
               >
                 ✕
               </button>
             </div>
 
-            <p className="muted" style={{ fontSize: "0.85rem", marginTop: 0, marginBottom: "16px" }}>
+            <p className="modal-desc muted">
               {t("authModalDesc")}
             </p>
 
             {session && (
-              <div
-                style={{
-                  background: "var(--panel-2)",
-                  border: "1px solid rgba(52, 211, 153, 0.3)",
-                  borderRadius: "10px",
-                  padding: "14px",
-                  marginBottom: "16px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "8px",
-                    marginBottom: "10px",
-                  }}
-                >
+              <div className="auth-signed-in">
+                <div className="auth-info-row">
                   <div>
                     <span className="muted" style={{ fontSize: "0.75rem", display: "block" }}>
                       {t("signedInAs")}
                     </span>
                     <strong style={{ color: "#34d399", fontSize: "1rem" }}>@{session.owner}</strong>
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                  <div className="auth-actions">
                     <button
                       type="button"
                       onClick={handleCopyBearerToken}
@@ -356,13 +311,8 @@ function AppContent() {
                     </button>
                     <button
                       type="button"
+                      className="danger-btn"
                       onClick={handleSignOut}
-                      style={{
-                        fontSize: "0.8rem",
-                        padding: "6px 10px",
-                        color: "var(--danger)",
-                        whiteSpace: "nowrap",
-                      }}
                     >
                       {t("signOut")}
                     </button>
@@ -370,73 +320,42 @@ function AppContent() {
                 </div>
 
                 {getStoredToken() && (
-                  <div style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
-                    <code
-                      style={{
-                        display: "block",
-                        background: "var(--bg)",
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        overflowX: "auto",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                  <div className="token-copy-row">
+                    <code>
                       export AGENTSHARE_TOKEN=&quot;{getStoredToken()}&quot;
                     </code>
                   </div>
                 )}
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "12px",
-                    marginTop: "10px",
-                    fontSize: "0.78rem",
-                    color: "var(--muted)",
-                  }}
-                >
-                  <span>
+                <div className="org-chips">
+                  <span className="org-chip">
                     {t("orgsLabel")}{" "}
                     {orgs.length > 0
                       ? orgs.map((o) => `${o.org.name} (${o.role})`).join(", ")
                       : t("orgsNone")}
                   </span>
-                  <span>{t("federationPeersLabel")} {peers.length}</span>
+                  <span className="org-chip">{t("federationPeersLabel")} {peers.length}</span>
                 </div>
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
+            <div className="modal-tabs">
               <button
                 type="button"
+                className={`tab-btn${authTab === "credentials" ? " active" : ""}`}
                 onClick={() => {
                   setAuthTab("credentials");
                   setAuthError(null);
-                }}
-                style={{
-                  flex: 1,
-                  padding: "8px",
-                  fontSize: "0.85rem",
-                  borderColor: authTab === "credentials" ? "var(--accent)" : "var(--border)",
-                  color: authTab === "credentials" ? "var(--accent)" : "var(--muted)",
-                  fontWeight: authTab === "credentials" ? 600 : 400,
                 }}
               >
                 {t("signInRegisterTab")}
               </button>
               <button
                 type="button"
+                className={`tab-btn${authTab === "token" ? " active" : ""}`}
                 onClick={() => {
                   setAuthTab("token");
                   setAuthError(null);
-                }}
-                style={{
-                  flex: 1,
-                  padding: "8px",
-                  fontSize: "0.85rem",
-                  borderColor: authTab === "token" ? "var(--accent)" : "var(--border)",
-                  color: authTab === "token" ? "var(--accent)" : "var(--muted)",
-                  fontWeight: authTab === "token" ? 600 : 400,
                 }}
               >
                 {t("useAccessTokenTab")}
@@ -444,48 +363,30 @@ function AppContent() {
             </div>
 
             {authError && (
-              <div
-                style={{
-                  background: "rgba(248, 113, 113, 0.12)",
-                  border: "1px solid rgba(248, 113, 113, 0.4)",
-                  color: "var(--danger)",
-                  borderRadius: "8px",
-                  padding: "8px 12px",
-                  fontSize: "0.85rem",
-                  marginBottom: "12px",
-                }}
-              >
+              <div className="banner error" style={{ marginBottom: "12px", marginTop: 0 }}>
                 {authError}
               </div>
             )}
 
             {authTab === "credentials" ? (
               <form
+                className="auth-form"
                 onSubmit={(e) => void handleCredentialsSubmit(e)}
-                style={{ display: "flex", flexDirection: "column", gap: "12px" }}
               >
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div className="modal-tabs" style={{ marginBottom: 0 }}>
                   <button
                     type="button"
+                    className={`tab-btn${authMode === "login" ? " active" : ""}`}
                     onClick={() => setAuthMode("login")}
-                    style={{
-                      flex: 1,
-                      fontSize: "0.8rem",
-                      padding: "6px",
-                      borderColor: authMode === "login" ? "var(--accent)" : "var(--border)",
-                    }}
+                    style={{ fontSize: "0.8rem", padding: "6px" }}
                   >
                     {t("signIn")}
                   </button>
                   <button
                     type="button"
+                    className={`tab-btn${authMode === "register" ? " active" : ""}`}
                     onClick={() => setAuthMode("register")}
-                    style={{
-                      flex: 1,
-                      fontSize: "0.8rem",
-                      padding: "6px",
-                      borderColor: authMode === "register" ? "var(--accent)" : "var(--border)",
-                    }}
+                    style={{ fontSize: "0.8rem", padding: "6px" }}
                   >
                     {t("createAccount")}
                   </button>
@@ -505,13 +406,8 @@ function AppContent() {
                 />
                 <button
                   type="submit"
+                  className="primary-btn"
                   disabled={authBusy}
-                  style={{
-                    background: "var(--accent)",
-                    color: "#090c12",
-                    fontWeight: 700,
-                    border: "none",
-                  }}
                 >
                   {authBusy
                     ? t("signingInBusy")
@@ -522,8 +418,8 @@ function AppContent() {
               </form>
             ) : (
               <form
+                className="auth-form"
                 onSubmit={(e) => void handlePasteTokenSubmit(e)}
-                style={{ display: "flex", flexDirection: "column", gap: "12px" }}
               >
                 <input
                   type="password"
@@ -534,13 +430,8 @@ function AppContent() {
                 />
                 <button
                   type="submit"
+                  className="primary-btn"
                   disabled={authBusy}
-                  style={{
-                    background: "var(--accent)",
-                    color: "#090c12",
-                    fontWeight: 700,
-                    border: "none",
-                  }}
                 >
                   {authBusy ? t("verifyingBusy") : t("saveAccessToken")}
                 </button>

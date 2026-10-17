@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 export type Locale = "en" | "zh";
 
@@ -72,6 +72,7 @@ export const translations = {
     loadingPackSpec: "loading pack specification…",
     star: "Star",
     starred: "Starred",
+    starFailedPrefix: "Star failed:",
     downloadTgz: "Download .tgz",
     tabSkillDoc: "📄 Documentation (SKILL.md)",
     tabSkillReady: "Ready",
@@ -125,6 +126,8 @@ export const translations = {
     inspectorMcpTitle: "Model Context Protocol (MCP) Server",
     inspectorMcpDescPrefix: "Configured in",
     inspectorMcpDescSuffix: "Tools are sandboxed with read-only guards.",
+    inspectorEndpointTitle: "Remote A2A Endpoint",
+    inspectorEndpointDescPrefix: "Bound to remote endpoint:",
     inspectorSecretTitle: "Declared Environment Secret",
     inspectorSecretDesc:
       "Host agent will prompt for this environment variable upon installation or inherit safely.",
@@ -136,6 +139,12 @@ export const translations = {
       "Test this pack directly in an ephemeral sandbox without local installation.",
     presetPrompt: "Prompt Preset",
     presetJson: "JSON Tool Call",
+    defaultRuntimeQuery: "Hello from AgentShare Playground",
+    defaultSkillPromptPrefix: "Please execute the ",
+    defaultSkillPromptSuffix: " skill for a project security audit.",
+    presetAuditPromptText:
+      "Review the following authentication logic for timing attacks and token leaks.",
+    noOutputFallback: "(no output)",
     signInSandboxBanner: "🔒 Sign in to execute packs in the isolated cloud sandbox.",
     taskPromptLabel: "Task Prompt (Text prompt or JSON):",
     runningInSandbox: "Running in Sandbox…",
@@ -149,6 +158,8 @@ export const translations = {
     outputResultLabel: "Output Result:",
     executionTraceLabel: "Execution Trace:",
     errSignInToRun: "Please sign in to run packs in the sandbox.",
+    sandboxIdleStatus: "READY",
+    sandboxIdleHint: "$ Ready — click 'Run in Sandbox' to stream isolated execution trace & output...",
 
     // PublishPage
     backLink: "← back",
@@ -178,12 +189,27 @@ export const translations = {
     publishSubmitBtn: "publish",
     copyLower: "copy",
     copiedLower: "copied",
+    errAgentJsonNotFound: "agent.json not found in the tarball",
+    errAgentJsonInvalid: "agent.json is not valid JSON",
+    errAgentJsonMustBeObject: "agent.json must be an object",
+    errAgentJsonMissingFieldPrefix: "agent.json is missing",
+    errChooseTarballFirst: "choose a tarball created by `agentshare pack` first",
+    errTokenRequired: "API token is required (or sign in via this registry's OIDC login)",
+    skillsCountSuffix: "skills",
 
     // SharePage
     shareRevoked: "This share has been revoked.",
     shareEndpointPrefix: "You are talking to a remote agent over A2A",
     shareOnlineDesc: "You are talking to a live agent session on the owner's machine. Read-only.",
     shareOfflineDesc: "The owner is offline. The link works again when their agent is sharing.",
+    shareStatus_online: "online",
+    shareStatus_offline: "offline",
+    shareStatus_revoked: "revoked",
+    roleVisitor: "Visitor",
+    roleAgent: "Agent",
+    roleSystem: "System",
+    submittedPrefix: "Submitted #",
+    submittedNoSessionHint: " (send a message in the chat to receive updates)",
     handoffContextPrefix: "📋 Handoff Context",
     handoffOpenTasksSuffix: "open tasks",
     handoffComplete: "complete",
@@ -269,6 +295,7 @@ export const translations = {
     loadingPackSpec: "正在加载技能包规范…",
     star: "星标",
     starred: "已星标",
+    starFailedPrefix: "星标操作失败：",
     downloadTgz: "下载 .tgz",
     tabSkillDoc: "📄 技能文档 (SKILL.md)",
     tabSkillReady: "就绪",
@@ -322,6 +349,8 @@ export const translations = {
     inspectorMcpTitle: "模型上下文协议 (MCP) 服务",
     inspectorMcpDescPrefix: "配置于",
     inspectorMcpDescSuffix: "工具在只读安全沙箱中受控运行。",
+    inspectorEndpointTitle: "远程 A2A 端点",
+    inspectorEndpointDescPrefix: "绑定至远程端点：",
     inspectorSecretTitle: "声明的环境变量密钥",
     inspectorSecretDesc: "宿主智能体将在安装时提示配置此环境变量或安全继承。",
 
@@ -331,6 +360,11 @@ export const translations = {
     playgroundSubtitle: "无需本地安装，直接在临时隔离沙箱中测试此技能包。",
     presetPrompt: "提示词预设",
     presetJson: "JSON 工具调用",
+    defaultRuntimeQuery: "来自 AgentShare 演练场的测试请求",
+    defaultSkillPromptPrefix: "请执行 ",
+    defaultSkillPromptSuffix: " 技能以进行项目安全审计。",
+    presetAuditPromptText: "请审查以下身份验证逻辑是否存在时序攻击与令牌泄露风险。",
+    noOutputFallback: "（无输出）",
     signInSandboxBanner: "🔒 请先登录以在隔离云沙箱中运行技能包。",
     taskPromptLabel: "任务指令 (文本提示词或 JSON):",
     runningInSandbox: "沙箱运行中…",
@@ -344,6 +378,8 @@ export const translations = {
     outputResultLabel: "输出结果:",
     executionTraceLabel: "执行轨迹:",
     errSignInToRun: "请先登录以在沙箱中运行技能包。",
+    sandboxIdleStatus: "就绪",
+    sandboxIdleHint: "$ 就绪 — 点击「在沙箱中运行」以查看隔离执行轨迹与输出结果...",
 
     // PublishPage
     backLink: "← 返回",
@@ -371,12 +407,27 @@ export const translations = {
     publishSubmitBtn: "立即发布",
     copyLower: "复制",
     copiedLower: "已复制",
+    errAgentJsonNotFound: "归档包中未找到 agent.json",
+    errAgentJsonInvalid: "agent.json 不是有效的 JSON",
+    errAgentJsonMustBeObject: "agent.json 必须是 JSON 对象",
+    errAgentJsonMissingFieldPrefix: "agent.json 缺少必填字段",
+    errChooseTarballFirst: "请先选择由 `agentshare pack` 生成的 .tgz 归档包",
+    errTokenRequired: "需要填写 API 访问令牌（或先登录账户）",
+    skillsCountSuffix: "个技能",
 
     // SharePage
     shareRevoked: "此共享会话已被撤销。",
     shareEndpointPrefix: "您正在通过 A2A 协议与远程智能体对话",
     shareOnlineDesc: "您正在与所有者机器上的实时智能体会话交互（只读模式）。",
     shareOfflineDesc: "所有者当前离线。当其智能体重新开启共享时链接将恢复可用。",
+    shareStatus_online: "在线",
+    shareStatus_offline: "离线",
+    shareStatus_revoked: "已撤销",
+    roleVisitor: "访客",
+    roleAgent: "智能体",
+    roleSystem: "系统",
+    submittedPrefix: "已提交 #",
+    submittedNoSessionHint: "（在聊天中发送消息以接收后续更新）",
     handoffContextPrefix: "📋 交接上下文",
     handoffOpenTasksSuffix: "项待办任务",
     handoffComplete: "已完成",
@@ -426,11 +477,26 @@ const LanguageContext = createContext<I18nContextValue>({
   t: (key: TranslationKey) => translations.en[key],
 });
 
+function syncHtmlLang(locale: Locale): void {
+  if (typeof document !== "undefined" && document.documentElement) {
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+  }
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(() => getInitialLocale());
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    const initial = getInitialLocale();
+    syncHtmlLang(initial);
+    return initial;
+  });
+
+  useEffect(() => {
+    syncHtmlLang(locale);
+  }, [locale]);
 
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next);
+    syncHtmlLang(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
     } catch {
@@ -441,6 +507,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const toggleLocale = useCallback(() => {
     setLocaleState((prev) => {
       const next: Locale = prev === "en" ? "zh" : "en";
+      syncHtmlLang(next);
       try {
         window.localStorage.setItem(STORAGE_KEY, next);
       } catch {

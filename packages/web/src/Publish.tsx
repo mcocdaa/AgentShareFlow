@@ -30,14 +30,18 @@ interface SelectedFile {
   size: number;
 }
 
-function toPreview(manifest: unknown): PackPreview {
+function toPreview(manifest: unknown, locale: "en" | "zh" = "en"): PackPreview {
   if (typeof manifest !== "object" || manifest === null) {
-    throw new Error("agent.json must be an object");
+    throw new Error(locale === "zh" ? "agent.json 必须是 JSON 对象" : "agent.json must be an object");
   }
   const record = manifest as Record<string, unknown>;
   for (const key of ["name", "version", "title", "description", "mode"] as const) {
     if (typeof record[key] !== "string" || record[key].length === 0) {
-      throw new Error(`agent.json is missing "${key}"`);
+      throw new Error(
+        locale === "zh"
+          ? `agent.json 缺少必填字段 "${key}"`
+          : `agent.json is missing "${key}"`,
+      );
     }
   }
   const strings = (value: unknown): string[] =>
@@ -119,8 +123,8 @@ export function PublishPage() {
     if (selected === null) return;
     try {
       const data = new Uint8Array(await selected.arrayBuffer());
-      const parsed = extractManifestFromTarball(data);
-      setPreview(toPreview(parsed));
+      const parsed = extractManifestFromTarball(data, locale);
+      setPreview(toPreview(parsed, locale));
       setManifest(parsed);
       setBytes(data);
       setDigest(hex(await crypto.subtle.digest("SHA-256", data)));
@@ -138,11 +142,11 @@ export function PublishPage() {
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     if (bytes === null || manifest === null || digest === null) {
-      setError("choose a tarball created by `agentshare pack` first");
+      setError(t("errChooseTarballFirst"));
       return;
     }
     if (session === null && token.trim().length === 0) {
-      setError("API token is required (or sign in via this registry's OIDC login)");
+      setError(t("errTokenRequired"));
       return;
     }
     setBusy(true);
@@ -185,7 +189,7 @@ export function PublishPage() {
           <span className="step-num">1</span>
           <h3>{t("publishStep1Title")}</h3>
         </div>
-        <div className="install">
+        <div className="install code-row">
           <code>{packCommand}</code>
           <CopyButton text={packCommand} />
         </div>
@@ -215,24 +219,24 @@ export function PublishPage() {
             onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
           />
           {file === null ? (
-            <>
+            <div className="dropzone-empty">
               <span className="dropzone-title">{t("dropzoneEmptyTitle")}</span>
               <span className="muted small">{t("dropzoneEmptySub")}</span>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="dropzone-empty">
               <span className="dropzone-title">{file.name}</span>
               <span className="muted small">
                 {formatBytes(file.size)}
                 {digest !== null && ` · sha256 ${digest.slice(0, 12)}…`}
               </span>
-            </>
+            </div>
           )}
         </label>
 
         {preview !== null && (
           <div className="card preview-card">
-            <div className="card-head">
+            <div className="card-head preview-head">
               <span className="ref">
                 {preview.name}@{preview.version}
               </span>
@@ -240,13 +244,15 @@ export function PublishPage() {
             </div>
             <h3>{preview.title}</h3>
             <p>{preview.description}</p>
-            <div className="meta-row">
+            <div className="meta-row preview-chips">
               {preview.compatibility.length > 0 && (
                 <span className="chip">{preview.compatibility.join(" · ")}</span>
               )}
               {preview.skills.length > 0 && (
                 <span className="chip">
-                  {preview.skills.length} skill{preview.skills.length === 1 ? "" : "s"}
+                  {locale === "zh"
+                    ? `${preview.skills.length} ${t("skillsCountSuffix")}`
+                    : `${preview.skills.length} skill${preview.skills.length === 1 ? "" : "s"}`}
                 </span>
               )}
               {preview.tags.map((tag) => (
@@ -294,7 +300,7 @@ export function PublishPage() {
         {error !== null && <p className="banner error">{error}</p>}
         {result !== null && (
           <div className="success-card">
-            <div className="card-head">
+            <div className="card-head preview-head">
               <span className="ref">{result.ref}</span>
               <span className="muted small">{t("publishedBadge")}</span>
             </div>
@@ -303,7 +309,7 @@ export function PublishPage() {
                 {t("viewPackLink")}
               </a>
             </p>
-            <div className="install">
+            <div className="install code-row">
               <code>{`${CLI} install ${parseRef(result.ref).owner}/${parseRef(result.ref).name}`}</code>
               <CopyButton
                 text={`${CLI} install ${parseRef(result.ref).owner}/${parseRef(result.ref).name}`}
@@ -312,9 +318,11 @@ export function PublishPage() {
           </div>
         )}
 
-        <button className="primary" type="submit" disabled={busy || bytes === null}>
-          {busy ? t("publishingBusy") : t("publishSubmitBtn")}
-        </button>
+        <div className="actions">
+          <button className="primary" type="submit" disabled={busy || bytes === null}>
+            {busy ? t("publishingBusy") : t("publishSubmitBtn")}
+          </button>
+        </div>
       </section>
     </form>
   );
