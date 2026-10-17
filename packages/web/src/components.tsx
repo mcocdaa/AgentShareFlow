@@ -20,7 +20,7 @@ interface HarnessOption {
 }
 
 const HARNESS_OPTIONS: HarnessOption[] = [
-  { id: "agents", label: "通用 (Agents)", targetArg: "agents", icon: "🌐" },
+  { id: "agents", label: "Universal", targetArg: "agents", icon: "🌐" },
   { id: "claude", label: "Claude Code", targetArg: "claude", icon: "⚡" },
   { id: "codex", label: "Codex", targetArg: "codex", icon: "🤖" },
   { id: "opencode", label: "OpenCode", targetArg: "opencode", icon: "💻" },
@@ -65,6 +65,7 @@ export function InstallCommand({
               supportedHarnesses.length === 0 ||
               supportedHarnesses.includes(opt.id) ||
               supportedHarnesses.includes("all") ||
+              supportedHarnesses.includes("agents") ||
               opt.id === "agents";
 
             return (
@@ -131,7 +132,7 @@ export function PackCard({ pack }: { pack: PackSummary }) {
       <h3>{pack.title}</h3>
       <p>{pack.description}</p>
       <div className="card-tags">
-        {(pack.tags ?? []).slice(0, 4).map((tag) => (
+        {(pack.tags ?? []).slice(0, 3).map((tag) => (
           <span key={tag} className="tag-pill">
             #{tag}
           </span>

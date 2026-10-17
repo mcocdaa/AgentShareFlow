@@ -136,7 +136,7 @@ export function App() {
       const verified = await refreshIdentity();
       if (!verified) {
         setStoredToken(null);
-        setAuthError("Invalid Bearer token: rejected by /api/v1/me");
+        setAuthError("Invalid access token.");
         return;
       }
       setTokenInput(cleaned);
@@ -172,90 +172,91 @@ export function App() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="search packs…"
+            placeholder="Search packs…"
           />
-          <button type="submit">search</button>
+          <button type="submit">Search</button>
         </form>
         <a className={`header-link${publishMatch ? " active" : ""}`} href="#/publish">
-          publish
+          Publish
         </a>
 
-        {/* Identity / API Token Bar (Human via UI, AI via API Symmetry) */}
-        <div
-          className="identity-bar"
-          style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
-        >
+        <div className="identity-bar">
           {session ? (
-            <>
+            <div className="user-pill-group">
               <button
                 type="button"
+                className="user-profile-pill"
                 onClick={() => {
                   setAuthError(null);
                   setAuthModalOpen(true);
                 }}
-                title="View identity, organizations, federation peers & API token"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "7px 12px",
-                  fontSize: "0.85rem",
-                  borderColor: "rgba(52, 211, 153, 0.4)",
-                  backgroundColor: "rgba(52, 211, 153, 0.08)",
-                  color: "#34d399",
-                  fontWeight: 600,
-                }}
+                title="Account & Access Token"
               >
-                <span>●</span>
+                <span className="user-status-dot">●</span>
                 <span>@{session.owner}</span>
               </button>
               <button
                 type="button"
+                className={`nav-icon-btn${copiedToken ? " copied" : ""}`}
                 onClick={handleCopyBearerToken}
-                title="Copy Bearer Token for AI / CLI symmetry"
-                style={{
-                  padding: "7px 12px",
-                  fontSize: "0.82rem",
-                  whiteSpace: "nowrap",
-                }}
+                title={copiedToken ? "Access token copied" : "Copy access token"}
+                aria-label="Copy access token"
               >
-                {copiedToken ? "✓ Copied Bearer Token" : "Copy Bearer Token (for AI / CLI)"}
+                {copiedToken ? (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <span style={{ fontSize: "0.82rem", lineHeight: 1 }}>🔑</span>
+                )}
               </button>
               <button
                 type="button"
+                className="nav-icon-btn signout"
                 onClick={handleSignOut}
-                style={{
-                  padding: "7px 10px",
-                  fontSize: "0.82rem",
-                  color: "var(--muted)",
-                }}
+                title="Sign Out"
+                aria-label="Sign Out"
               >
-                Sign Out
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
               </button>
-            </>
+            </div>
           ) : (
             <button
               type="button"
+              className="signin-pill-btn"
               onClick={() => {
                 setAuthError(null);
                 setAuthModalOpen(true);
               }}
-              style={{
-                padding: "8px 14px",
-                fontSize: "0.85rem",
-                borderColor: "var(--accent)",
-                color: "var(--accent)",
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-              }}
             >
-              🔑 Sign In / API Token
+              Sign In
             </button>
           )}
         </div>
       </header>
 
-      {/* Interactive Identity & API Token Symmetry Modal */}
       {authModalOpen && (
         <div
           className="identity-modal-backdrop"
@@ -277,7 +278,7 @@ export function App() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: "100%",
-              maxWidth: "500px",
+              maxWidth: "480px",
               background: "var(--panel)",
               border: "1px solid var(--border-focus)",
               borderRadius: "14px",
@@ -290,11 +291,11 @@ export function App() {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                marginBottom: "14px",
+                marginBottom: "12px",
               }}
             >
               <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
-                🔑 Identity &amp; API Token Symmetry
+                🔑 Account &amp; Access Token
               </h3>
               <button
                 type="button"
@@ -306,8 +307,8 @@ export function App() {
             </div>
 
             <p className="muted" style={{ fontSize: "0.85rem", marginTop: 0, marginBottom: "16px" }}>
-              Human via WebUI and AI / CLI via API share the exact same Bearer token identity for
-              Playground sandboxes, starring, publishing, and RBAC organizations.
+              Manage your account session, organization memberships, and personal access token for
+              CLI publishing and sandbox execution.
             </p>
 
             {session && (
@@ -330,23 +331,28 @@ export function App() {
                   }}
                 >
                   <div>
-                    <span className="muted" style={{ fontSize: "0.78rem", display: "block" }}>
-                      Connected Owner Namespace
+                    <span className="muted" style={{ fontSize: "0.75rem", display: "block" }}>
+                      Signed in as
                     </span>
                     <strong style={{ color: "#34d399", fontSize: "1rem" }}>@{session.owner}</strong>
                   </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={handleCopyBearerToken}
-                      style={{ fontSize: "0.8rem", padding: "6px 10px" }}
+                      style={{ fontSize: "0.8rem", padding: "6px 10px", whiteSpace: "nowrap" }}
                     >
-                      {copiedToken ? "✓ Copied" : "Copy Bearer Token (for AI / CLI)"}
+                      {copiedToken ? "✓ Copied" : "Copy Token"}
                     </button>
                     <button
                       type="button"
                       onClick={handleSignOut}
-                      style={{ fontSize: "0.8rem", padding: "6px 10px", color: "var(--danger)" }}
+                      style={{
+                        fontSize: "0.8rem",
+                        padding: "6px 10px",
+                        color: "var(--danger)",
+                        whiteSpace: "nowrap",
+                      }}
                     >
                       Sign Out
                     </button>
@@ -406,7 +412,7 @@ export function App() {
                   fontWeight: authTab === "credentials" ? 600 : 400,
                 }}
               >
-                Login / Register
+                Sign In / Register
               </button>
               <button
                 type="button"
@@ -423,7 +429,7 @@ export function App() {
                   fontWeight: authTab === "token" ? 600 : 400,
                 }}
               >
-                Paste Bearer Token
+                Use Access Token
               </button>
             </div>
 
@@ -459,7 +465,7 @@ export function App() {
                       borderColor: authMode === "login" ? "var(--accent)" : "var(--border)",
                     }}
                   >
-                    Sign In Existing User
+                    Sign In
                   </button>
                   <button
                     type="button"
@@ -471,13 +477,13 @@ export function App() {
                       borderColor: authMode === "register" ? "var(--accent)" : "var(--border)",
                     }}
                   >
-                    Register New Namespace
+                    Create Account
                   </button>
                 </div>
                 <input
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username / owner namespace (e.g. alice)"
+                  placeholder="Username (e.g. alice)"
                   autoComplete="username"
                 />
                 <input
@@ -498,10 +504,10 @@ export function App() {
                   }}
                 >
                   {authBusy
-                    ? "Authenticating…"
+                    ? "Signing in…"
                     : authMode === "register"
-                      ? "Register & Obtain Bearer Token"
-                      : "Sign In & Obtain Bearer Token"}
+                      ? "Create Account"
+                      : "Sign In"}
                 </button>
               </form>
             ) : (
@@ -513,7 +519,7 @@ export function App() {
                   type="password"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Paste Bearer token (from AGENTSHARE_TOKENS or CLI)"
+                  placeholder="Paste personal access token"
                   autoComplete="off"
                 />
                 <button
@@ -526,7 +532,7 @@ export function App() {
                     border: "none",
                   }}
                 >
-                  {authBusy ? "Verifying Token…" : "Connect Bearer Token"}
+                  {authBusy ? "Verifying…" : "Save Access Token"}
                 </button>
               </form>
             )}

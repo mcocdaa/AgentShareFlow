@@ -94,7 +94,10 @@ function renderInline(text: string): React.ReactNode[] {
 export function MarkdownView({ content }: { content: string }) {
   if (!content) return null;
 
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const normalized = content.replace(/\r\n/g, "\n");
+  const strippedFrontmatter = normalized.replace(/^---\n[\s\S]*?\n---\n+/, "");
+  const effectiveContent = strippedFrontmatter.trim().length > 0 ? strippedFrontmatter : normalized;
+  const lines = effectiveContent.split("\n");
   const nodes: React.ReactNode[] = [];
 
   let inCode = false;

@@ -111,6 +111,7 @@ export async function executeInSandbox(
   config: SandboxConfig = {},
 ): Promise<RuntimeExecutionResult> {
   const startTime = Date.now();
+  const elapsedMs = () => Math.max(1, Date.now() - startTime);
   const packDir = path.resolve(options.packDir);
 
   if (!fs.existsSync(packDir)) {
@@ -118,7 +119,7 @@ export async function executeInSandbox(
       ok: false,
       output: null,
       logs: [`Error: pack directory does not exist: ${packDir}`],
-      executionTimeMs: Date.now() - startTime,
+      executionTimeMs: elapsedMs(),
       exitCode: 1,
       sandboxed: true,
       error: `Directory not found: ${packDir}`,
@@ -151,7 +152,7 @@ export async function executeInSandbox(
       ok: false,
       output: null,
       logs: [`Error: ${message}`],
-      executionTimeMs: Date.now() - startTime,
+      executionTimeMs: elapsedMs(),
       exitCode: 1,
       sandboxed: true,
       error: message,
@@ -169,7 +170,7 @@ export async function executeInSandbox(
           ok: false,
           output: null,
           logs: ["Error: SKILL.md symlink escapes pack directory."],
-          executionTimeMs: Date.now() - startTime,
+          executionTimeMs: elapsedMs(),
           exitCode: 1,
           sandboxed: true,
           error: "SKILL.md symlink escapes pack directory",
@@ -182,7 +183,7 @@ export async function executeInSandbox(
       ok: false,
       output: null,
       logs: ["No executable entrypoint (index.js, main.js, run.sh) or SKILL.md found in pack."],
-      executionTimeMs: Date.now() - startTime,
+      executionTimeMs: elapsedMs(),
       exitCode: 1,
       sandboxed: true,
       error: "No executable entrypoint or SKILL.md found",
@@ -240,7 +241,7 @@ export async function executeInSandbox(
         ok: false,
         output: null,
         logs: [`Spawn error: ${err instanceof Error ? err.message : String(err)}`],
-        executionTimeMs: Date.now() - startTime,
+        executionTimeMs: elapsedMs(),
         exitCode: 1,
         sandboxed: true,
         error: String(err),
@@ -317,7 +318,7 @@ export async function executeInSandbox(
         ok: false,
         output: null,
         logs,
-        executionTimeMs: Date.now() - startTime,
+        executionTimeMs: elapsedMs(),
         exitCode: 1,
         sandboxed: true,
         error: err.message,
@@ -326,7 +327,7 @@ export async function executeInSandbox(
 
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      const executionTimeMs = Date.now() - startTime;
+      const executionTimeMs = elapsedMs();
       const exitCode = code ?? (signal ? 128 : 0);
 
       // Attempt to parse stdout as JSON if possible
@@ -403,7 +404,7 @@ async function simulateSkillExecution(
     ok: true,
     output: result,
     logs,
-    executionTimeMs: Date.now() - startTime,
+    executionTimeMs: Math.max(1, Date.now() - startTime),
     exitCode: 0,
     sandboxed: true,
   };
