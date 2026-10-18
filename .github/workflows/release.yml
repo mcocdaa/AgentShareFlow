@@ -13,6 +13,8 @@ jobs:
     name: Publish @agentshare packages
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -23,24 +25,24 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build and test
-        run: pnpm build && pnpm test
+      - name: Build, test, typecheck, and verify release tarballs
+        run: |
+          pnpm build
+          pnpm test
+          pnpm typecheck
+          bash scripts/verify-release.sh --archive dist-tarballs
       - name: Publish @agentshare/core
         if: env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/core publish --no-git-checks --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish @agentshare/cli
         if: env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/cli publish --no-git-checks --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists"
+            gh release upload "${GITHUB_REF_NAME}" dist-tarballs/*.tgz --clobber
           else
-            gh release create "${GITHUB_REF_NAME}" --generate-notes --verify-tag
+            gh release create "${GITHUB_REF_NAME}" dist-tarballs/*.tgz --generate-notes --verify-tag
           fi

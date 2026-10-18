@@ -1,6 +1,6 @@
 {
   "name": "@agentshare/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Agent Pack spec, tarball tooling, share tunnel client, A2A client, and handoff contracts for AgentShareFlow.",
   "license": "MIT",
   "repository": {
