@@ -1,6 +1,6 @@
 {
   "name": "@agentshare/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Command-line client for AgentShareFlow: publish and install Agent Packs, review handoffs, and manage share outcomes.",
   "license": "MIT",
   "repository": {
