@@ -50,6 +50,7 @@ export const translations = {
     errInvalidToken: "Invalid access token.",
     loadingCatalog: "loading…",
     emptyCatalog: "no packs yet — publish one with the CLI",
+    emptySearch: "no packs match your search query",
     langToggleLabel: "🌐 中文",
     langToggleTitle: "Switch to Chinese (切换到中文)",
 
@@ -280,6 +281,7 @@ export const translations = {
     errInvalidToken: "无效的访问令牌。",
     loadingCatalog: "加载中…",
     emptyCatalog: "暂无技能包 — 可通过 CLI 或发布页面上传",
+    emptySearch: "未找到匹配的技能包",
     langToggleLabel: "🌐 EN",
     langToggleTitle: "切换到英文 (Switch to English)",
 
@@ -849,6 +851,21 @@ export function translatePackText(text: string, locale: Locale): string {
     if (forbiddenPublishMatch) {
       return `禁止访问：您没有权限发布到 ${forbiddenPublishMatch[1]}`;
     }
+    const submittedOutcomeMatch = /^Submitted outcome #(\d+)(.*)$/i.exec(normalized);
+    if (submittedOutcomeMatch) {
+      return `已提交结论反馈 #${submittedOutcomeMatch[1]}${submittedOutcomeMatch[2]}`;
+    }
+    const submittedShortMatch = /^Submitted #(\d+)(.*)$/i.exec(normalized);
+    if (submittedShortMatch) {
+      return `已提交 #${submittedShortMatch[1]}${submittedShortMatch[2]}`;
+    }
+    const outcomeDecidedMatch =
+      /^Outcome (accepted|rejected) \(submission #(\d+)\)(?::\s*(.+))?$/i.exec(normalized);
+    if (outcomeDecidedMatch) {
+      const label = outcomeDecidedMatch[1]?.toLowerCase() === "accepted" ? "成果已接收" : "成果已退回";
+      const note = outcomeDecidedMatch[3] ? `：${outcomeDecidedMatch[3]}` : "";
+      return `${label}（提交 #${outcomeDecidedMatch[2]}）${note}`;
+    }
     return text;
   }
   const reverse = ZH_TO_EN_MAP.get(normalized);
@@ -868,6 +885,17 @@ export function translatePackText(text: string, locale: Locale): string {
   const forbiddenPublishZhMatch = /^禁止访问：您没有权限发布到 (.+)$/.exec(normalized);
   if (forbiddenPublishZhMatch) {
     return `forbidden: you do not have permission to publish to ${forbiddenPublishZhMatch[1]}`;
+  }
+  const submittedOutcomeZhMatch = /^已提交(?:结论反馈|成果)?\s*#(\d+)(.*)$/.exec(normalized);
+  if (submittedOutcomeZhMatch) {
+    return `Submitted outcome #${submittedOutcomeZhMatch[1]}${submittedOutcomeZhMatch[2]}`;
+  }
+  const outcomeDecidedZhMatch =
+    /^(成果已接收|成果已退回)[（(]提交 #(\d+)[）)](?:[：:]\s*(.+))?$/.exec(normalized);
+  if (outcomeDecidedZhMatch) {
+    const statusWord = outcomeDecidedZhMatch[1] === "成果已接收" ? "accepted" : "rejected";
+    const note = outcomeDecidedZhMatch[3] ? `: ${outcomeDecidedZhMatch[3]}` : "";
+    return `Outcome ${statusWord} (submission #${outcomeDecidedZhMatch[2]})${note}`;
   }
   return text;
 }

@@ -312,7 +312,7 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
                   : t("roleSystem")}
             </div>
             {message.role === "system" ? (
-              <div className="bubble-system-text">{message.content}</div>
+              <div className="bubble-system-text">{td(message.content)}</div>
             ) : (
               <MarkdownView content={message.content} />
             )}

@@ -29,6 +29,7 @@ export function PackDetailPage({
   const [readme, setReadme] = useState<string | null>(null);
   const [loadingReadme, setLoadingReadme] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [starError, setStarError] = useState<string | null>(null);
   const [starring, setStarring] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<"skill" | "topology" | "playground" | "metadata">("skill");
 
@@ -36,6 +37,7 @@ export function PackDetailPage({
     setDetail(null);
     setReadme(null);
     setError(null);
+    setStarError(null);
     getPack(owner, name)
       .then((pack) => {
         setDetail(pack);
@@ -61,6 +63,7 @@ export function PackDetailPage({
       return;
     }
     setStarring(true);
+    setStarError(null);
     try {
       const res = await toggleStar(owner, name, detail.starred === true);
       setDetail({
@@ -73,7 +76,7 @@ export function PackDetailPage({
       if (/unauthorized|401/i.test(msg) && onRequireAuth) {
         onRequireAuth();
       } else {
-        alert(`${t("starFailedPrefix")} ${td(msg)}`);
+        setStarError(msg);
       }
     } finally {
       setStarring(false);
@@ -90,6 +93,11 @@ export function PackDetailPage({
           {t("backToCatalog")}
         </a>
         <div className="detail-top-actions">
+          {starError && (
+            <span className="error small" role="alert">
+              {t("starFailedPrefix")} {td(starError)}
+            </span>
+          )}
           <button
             type="button"
             className={`star-btn ${detail.starred ? "active" : ""}`}
