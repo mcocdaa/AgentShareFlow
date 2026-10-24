@@ -522,7 +522,7 @@ function AppContent() {
         ) : loading ? (
           <p className="muted">{t("loadingCatalog")}</p>
         ) : items.length === 0 ? (
-          <p className="muted">{t("emptyCatalog")}</p>
+          <p className="muted">{query.trim() ? t("emptySearch") : t("emptyCatalog")}</p>
         ) : (
           <div className="grid">
             {items.map((pack) => (
