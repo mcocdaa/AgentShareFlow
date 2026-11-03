@@ -7,7 +7,15 @@ import {
   getStoredToken,
   toggleStar,
 } from "./api.js";
-import { InstallCommand, ModeBadge } from "./components.js";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  InstallCommand,
+  ModeBadge,
+  ShieldIcon,
+  StarIcon,
+  TerminalIcon,
+} from "./components.js";
 import { DependencyTopology } from "./DependencyTopology.js";
 import { useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
@@ -104,7 +112,7 @@ export function PackDetailPage({
             onClick={onToggleStar}
             disabled={starring}
           >
-            <span className="star-icon">★</span>
+            <StarIcon size={14} filled={Boolean(detail.starred)} />
             <span className="star-text">{detail.starred ? t("starred") : t("star")}</span>
             <span className="star-count">{detail.stars}</span>
           </button>
@@ -113,7 +121,7 @@ export function PackDetailPage({
             href={detail.downloadUrl}
             download={`${detail.name}-${detail.version}.tgz`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>{t("downloadTgz")}</span>
           </a>
         </div>
@@ -157,6 +165,7 @@ export function PackDetailPage({
           className={`subtab-btn ${activeSubTab === "skill" ? "active" : ""}`}
           onClick={() => setActiveSubTab("skill")}
         >
+          <FileTextIcon size={14} />
           <span>{t("tabSkillDoc")}</span>
           {readme && <span className="subtab-count">{t("tabSkillReady")}</span>}
         </button>
@@ -165,6 +174,7 @@ export function PackDetailPage({
           className={`subtab-btn ${activeSubTab === "topology" ? "active" : ""}`}
           onClick={() => setActiveSubTab("topology")}
         >
+          <GitBranchIcon size={14} />
           <span>{t("tabTopology")}</span>
           <span className="subtab-count">{t("tabTopologyVisual")}</span>
         </button>
@@ -173,6 +183,7 @@ export function PackDetailPage({
           className={`subtab-btn ${activeSubTab === "playground" ? "active" : ""}`}
           onClick={() => setActiveSubTab("playground")}
         >
+          <TerminalIcon size={14} />
           <span>{t("tabPlayground")}</span>
           <span className="subtab-count">{t("tabPlaygroundBadge")}</span>
         </button>
@@ -181,6 +192,7 @@ export function PackDetailPage({
           className={`subtab-btn ${activeSubTab === "metadata" ? "active" : ""}`}
           onClick={() => setActiveSubTab("metadata")}
         >
+          <ShieldIcon size={14} />
           <span>{t("tabManifestSecurity")}</span>
         </button>
       </div>
@@ -191,7 +203,7 @@ export function PackDetailPage({
           <div className="skill-card">
             <div className="skill-card-header">
               <div className="skill-card-title">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <FileTextIcon size={16} />
                 <span>{t("skillCardTitle")}</span>
               </div>
               <span className="skill-render-badge">{t("skillRenderBadge")}</span>

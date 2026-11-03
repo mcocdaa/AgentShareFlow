@@ -8,6 +8,7 @@ import {
   postShareMessage,
   postSubmission,
 } from "./api.js";
+import { ClipboardIcon, GlobeIcon, MessageSquareIcon } from "./components.js";
 import { type TranslationKey, translateEvidenceKind, useI18n } from "./i18n.js";
 import { MarkdownView } from "./MarkdownView.js";
 
@@ -62,11 +63,14 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
   const openCount = handoff.tasks.filter((task) => task.status !== "done").length;
   return (
     <details className="handoff">
-      <summary>
-        {t("handoffContextPrefix")} · {td(handoff.title)}
-        {openCount > 0
-          ? ` (${openCount} ${t("handoffOpenTasksSuffix")})`
-          : ` (${t("handoffComplete")})`}
+      <summary className="handoff-summary">
+        <ClipboardIcon size={14} />
+        <span>
+          {t("handoffContextPrefix")} · {td(handoff.title)}
+          {openCount > 0
+            ? ` (${openCount} ${t("handoffOpenTasksSuffix")})`
+            : ` (${t("handoffComplete")})`}
+        </span>
       </summary>
       <div className="handoff-body">
         <p>{td(handoff.goal)}</p>
@@ -164,7 +168,7 @@ function HandoffPanel({ handoff }: { handoff: ShareHandoff }) {
 }
 
 export function SharePage({ id, compact = false }: { id: string; compact?: boolean }) {
-  const { t, td } = useI18n();
+  const { t, td, locale, toggleLocale } = useI18n();
   const [meta, setMeta] = useState<ShareMeta | null>(null);
   const [status, setStatus] = useState<ShareMeta["status"]>("offline");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -285,9 +289,25 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         <span className="ref">
           {meta.owner} · {td(meta.title)}
         </span>
-        <span className={`badge status-${status}`}>
-          {t(`shareStatus_${status}`)}
-        </span>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+          <span className={`badge status-${status}`}>
+            {t(`shareStatus_${status}`)}
+          </span>
+          {compact && (
+            <button
+              type="button"
+              data-action="toggle-locale"
+              data-testid="lang-toggle-btn"
+              className="lang-toggle-btn"
+              onClick={toggleLocale}
+              title={t("langToggleTitle")}
+              aria-label={t("langToggleTitle")}
+            >
+              <GlobeIcon size={14} />
+              <span>{locale === "zh" ? "EN" : "中文"}</span>
+            </button>
+          )}
+        </div>
       </div>
       <p className="muted small">
         {status === "revoked"
@@ -327,7 +347,9 @@ export function SharePage({ id, compact = false }: { id: string; compact?: boole
         )}
         {messages.length === 0 && !streamText && (
           <div className="chat-empty">
-            <span className="chat-empty-icon">💬</span>
+            <span className="chat-empty-icon">
+              <MessageSquareIcon size={26} />
+            </span>
             <p>{t("chatEmpty")}</p>
           </div>
         )}

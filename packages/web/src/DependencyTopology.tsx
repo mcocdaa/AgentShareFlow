@@ -1,5 +1,12 @@
 import React, { useState } from "react";
 import type { PackDetail } from "./api.js";
+import {
+  CheckIcon,
+  FileTextIcon,
+  GitBranchIcon,
+  LockIcon,
+  PackageIcon,
+} from "./components.js";
 import { useI18n } from "./i18n.js";
 
 interface TopologyProps {
@@ -25,7 +32,9 @@ export function DependencyTopology({ detail }: TopologyProps) {
     <div className="topology-card">
       <div className="topology-header">
         <div className="topology-title-row">
-          <span className="topology-icon">⎇</span>
+          <span className="topology-icon">
+            <GitBranchIcon size={16} />
+          </span>
           <h4>{t("topologyTitle")}</h4>
         </div>
         <span className="topology-hint">{t("topologyHint")}</span>
@@ -39,7 +48,9 @@ export function DependencyTopology({ detail }: TopologyProps) {
             className={`topo-node root-node ${activeNode === "root" ? "active" : ""}`}
             onClick={() => setActiveNode(activeNode === "root" ? null : "root")}
           >
-            <div className="node-icon">📦</div>
+            <div className="node-icon">
+              <PackageIcon size={20} />
+            </div>
             <div className="node-body">
               <div className="node-title">{detail.name}</div>
               <div className="node-sub">
@@ -85,7 +96,9 @@ export function DependencyTopology({ detail }: TopologyProps) {
                   className={`topo-node skill-node ${activeNode === `s-${idx}` ? "active" : ""}`}
                   onClick={() => setActiveNode(activeNode === `s-${idx}` ? null : `s-${idx}`)}
                 >
-                  <span className="skill-glyph">✦</span>
+                  <span className="skill-glyph">
+                    <FileTextIcon size={13} />
+                  </span>
                   <span className="node-title">{skill === "." ? t("topoSkillRoot") : skill}</span>
                 </div>
               ))}
@@ -132,13 +145,17 @@ export function DependencyTopology({ detail }: TopologyProps) {
                     className={`topo-node secret-node ${activeNode === `sec-${secret}` ? "active" : ""}`}
                     onClick={() => setActiveNode(activeNode === `sec-${secret}` ? null : `sec-${secret}`)}
                   >
-                    <span className="lock-icon">🔒</span>
+                    <span className="lock-icon">
+                      <LockIcon size={13} />
+                    </span>
                     <span className="node-title">{secret}</span>
                   </div>
                 ))
               ) : (
                 <div className="topo-node clean-node">
-                  <span className="check-glyph">✓</span>
+                  <span className="check-glyph">
+                    <CheckIcon size={13} />
+                  </span>
                   <span className="node-sub">{t("topoZeroCredentials")}</span>
                 </div>
               )}

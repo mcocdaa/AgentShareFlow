@@ -242,6 +242,12 @@ describe("Bilingual i18n dictionary and locale defaults", () => {
     expect(translations.zh.modeOffline).toBe("离线可用");
     expect(translations.zh.roleOwner).toBe("所有者");
     expect(translations.zh.roleMember).toBe("成员");
+    expect(translations.zh.langToggleLabel).toBe("EN");
+    expect(translations.en.langToggleLabel).toBe("中文");
+    for (const key of enKeys as Array<keyof typeof translations.en>) {
+      expect(translations.en[key]).not.toMatch(/[\u{1F000}-\u{1FAFF}]/u);
+      expect(translations.zh[key]).not.toMatch(/[\u{1F000}-\u{1FAFF}]/u);
+    }
   });
 
   it("localizes tarball extraction errors when locale is zh", () => {
