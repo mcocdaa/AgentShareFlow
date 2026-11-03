@@ -1,3 +1,4 @@
+import { gzipSync, strToU8 } from "fflate";
 import { useEffect, useState, type DragEvent, type FormEvent } from "react";
 import {
   getSession,
@@ -7,7 +8,7 @@ import {
   type PublishResult,
   type SessionInfo,
 } from "./api.js";
-import { ModeBadge } from "./components.js";
+import { ModeBadge, PackageIcon, SparklesIcon, UploadIcon } from "./components.js";
 import { translatePackText, useI18n } from "./i18n.js";
 import { extractManifestFromTarball } from "./tar.js";
 
@@ -28,6 +29,65 @@ interface PackPreview {
 interface SelectedFile {
   name: string;
   size: number;
+}
+
+function buildSampleTarball(): Uint8Array {
+  const sampleManifest = JSON.stringify(
+    {
+      spec: "agent-pack/v0",
+      name: "flow-orchestrator",
+      version: "0.2.0",
+      title: "Flow Ecosystem Orchestrator",
+      description:
+        "Multi-service health diagnostics, release readiness checks, and cross-project workflow automation pack.",
+      mode: "offline",
+      license: "MIT",
+      compatibility: ["agents", "claude", "codex", "opencode", "openclaw", "hermes"],
+      skills: ["."],
+      tags: ["orchestration", "devops", "security"],
+    },
+    null,
+    2,
+  );
+  const sampleSkill = `---
+name: flow-orchestrator
+description: Multi-service health diagnostics, release readiness checks, and cross-project workflow automation pack.
+---
+
+# Flow Ecosystem Orchestrator
+
+Coordinate release pipelines, health checks, and cross-service workflows across your workspace with deterministic verification steps.
+`;
+
+  const makeEntry = (entryName: string, content: string): Uint8Array => {
+    const contentBytes = strToU8(content);
+    const header = new Uint8Array(512);
+    header.set(strToU8(entryName), 0);
+    header.set(strToU8("0000644"), 100);
+    header.set(strToU8("0000000"), 108);
+    header.set(strToU8("0000000"), 116);
+    header.set(strToU8(contentBytes.length.toString(8).padStart(11, "0")), 124);
+    header.set(strToU8(Math.floor(Date.now() / 1000).toString(8).padStart(11, "0")), 136);
+    header.fill(32, 148, 156);
+    header[156] = 48;
+    header.set(strToU8("ustar"), 257);
+    let sum = 0;
+    for (let i = 0; i < 512; i++) sum += header[i]!;
+    header.set(strToU8(sum.toString(8).padStart(6, "0") + "\0 "), 148);
+    const padded = new Uint8Array(Math.ceil(contentBytes.length / 512) * 512);
+    padded.set(contentBytes);
+    const out = new Uint8Array(512 + padded.length);
+    out.set(header, 0);
+    out.set(padded, 512);
+    return out;
+  };
+
+  const e1 = makeEntry("agent.json", sampleManifest);
+  const e2 = makeEntry("SKILL.md", sampleSkill);
+  const archive = new Uint8Array(e1.length + e2.length + 1024);
+  archive.set(e1, 0);
+  archive.set(e2, e1.length);
+  return gzipSync(archive);
 }
 
 function toPreview(manifest: unknown, locale: "en" | "zh" = "en"): PackPreview {
@@ -116,25 +176,45 @@ export function PublishPage() {
     setError((prev) => (prev ? translatePackText(prev, locale) : null));
   }, [locale]);
 
-  const selectFile = async (selected: File | null): Promise<void> => {
-    setFile(selected === null ? null : { name: selected.name, size: selected.size });
+  const loadTarballBytes = async (fileName: string, data: Uint8Array): Promise<void> => {
+    setFile({ name: fileName, size: data.byteLength });
     setManifest(null);
     setPreview(null);
     setBytes(null);
     setDigest(null);
     setResult(null);
     setError(null);
-    if (selected === null) return;
     try {
-      const data = new Uint8Array(await selected.arrayBuffer());
       const parsed = extractManifestFromTarball(data, locale);
       setPreview(toPreview(parsed, locale));
       setManifest(parsed);
       setBytes(data);
-      setDigest(hex(await crypto.subtle.digest("SHA-256", data)));
+      const copyBuf = new Uint8Array(data.byteLength);
+      copyBuf.set(data);
+      setDigest(hex(await crypto.subtle.digest("SHA-256", copyBuf)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
+  };
+
+  const selectFile = async (selected: File | null): Promise<void> => {
+    if (selected === null) {
+      setFile(null);
+      setManifest(null);
+      setPreview(null);
+      setBytes(null);
+      setDigest(null);
+      setResult(null);
+      setError(null);
+      return;
+    }
+    const data = new Uint8Array(await selected.arrayBuffer());
+    await loadTarballBytes(selected.name, data);
+  };
+
+  const handleAiAutofill = async (): Promise<void> => {
+    const data = buildSampleTarball();
+    await loadTarballBytes("flow-orchestrator-0.2.0.tgz", data);
   };
 
   const onDrop = (event: DragEvent<HTMLLabelElement>): void => {
@@ -204,9 +284,21 @@ export function PublishPage() {
       </section>
 
       <section className="step">
-        <div className="step-head">
-          <span className="step-num">2</span>
-          <h3>{t("publishStep2Title")}</h3>
+        <div className="step-head step-head-between">
+          <div className="step-head-left">
+            <span className="step-num">2</span>
+            <h3>{t("publishStep2Title")}</h3>
+          </div>
+          <button
+            type="button"
+            data-testid="ai-autofill-btn"
+            className="ai-autofill-btn"
+            onClick={() => void handleAiAutofill()}
+            title={t("aiAutofillTitle")}
+          >
+            <SparklesIcon size={14} />
+            <span>{t("aiAutofillBtn")}</span>
+          </button>
         </div>
         <label
           className={`dropzone${dragOver ? " over" : ""}${file !== null ? " filled" : ""}`}
@@ -224,11 +316,17 @@ export function PublishPage() {
           />
           {file === null ? (
             <div className="dropzone-empty">
+              <span className="dropzone-icon">
+                <UploadIcon size={20} />
+              </span>
               <span className="dropzone-title">{t("dropzoneEmptyTitle")}</span>
               <span className="muted small">{t("dropzoneEmptySub")}</span>
             </div>
           ) : (
             <div className="dropzone-empty">
+              <span className="dropzone-icon">
+                <PackageIcon size={20} />
+              </span>
               <span className="dropzone-title">{file.name}</span>
               <span className="muted small">
                 {formatBytes(file.size)}

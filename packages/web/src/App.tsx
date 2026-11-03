@@ -12,7 +12,16 @@ import {
   searchPacks,
   setStoredToken,
 } from "./api.js";
-import { PackCard } from "./components.js";
+import {
+  CheckIcon,
+  CpuIcon,
+  GlobeIcon,
+  KeyIcon,
+  LayersIcon,
+  PackCard,
+  PackageIcon,
+  XIcon,
+} from "./components.js";
 import { LanguageProvider, translatePackText, useI18n } from "./i18n.js";
 import { PackDetailPage } from "./PackDetail.js";
 import { PublishPage } from "./Publish.js";
@@ -28,10 +37,13 @@ function useHashRoute(): string {
   return hash;
 }
 
+type CategoryFilter = "all" | "offline" | "runtime" | "endpoint";
+
 function AppContent() {
   const { t, td, locale, toggleLocale } = useI18n();
   const hash = useHashRoute();
   const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
   const [items, setItems] = useState<PackSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -208,6 +220,11 @@ function AppContent() {
     );
   }
 
+  const filteredItems =
+    activeCategory === "all"
+      ? items
+      : items.filter((pack) => pack.mode === activeCategory);
+
   return (
     <div className="app">
       <header>
@@ -243,7 +260,7 @@ function AppContent() {
                 }}
                 title={t("accountAndToken")}
               >
-                <span className="user-status-dot">●</span>
+                <span className="user-status-dot" />
                 <span>@{session.owner}</span>
               </button>
               <button
@@ -253,22 +270,7 @@ function AppContent() {
                 title={copiedToken ? t("tokenCopiedTitle") : t("copyTokenTitle")}
                 aria-label={t("copyTokenTitle")}
               >
-                {copiedToken ? (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  <span style={{ fontSize: "0.82rem", lineHeight: 1 }}>🔑</span>
-                )}
+                {copiedToken ? <CheckIcon size={14} /> : <KeyIcon size={14} />}
               </button>
               <button
                 type="button"
@@ -286,6 +288,7 @@ function AppContent() {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden="true"
                 >
                   <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                   <polyline points="16 17 21 12 16 7" />
@@ -307,12 +310,15 @@ function AppContent() {
           )}
           <button
             type="button"
+            data-action="toggle-locale"
             data-testid="lang-toggle-btn"
             className="lang-toggle-btn"
             onClick={toggleLocale}
             title={t("langToggleTitle")}
+            aria-label={t("langToggleTitle")}
           >
-            {t("langToggleLabel")}
+            <GlobeIcon size={14} />
+            <span>{locale === "zh" ? "EN" : "中文"}</span>
           </button>
         </div>
       </header>
@@ -327,13 +333,17 @@ function AppContent() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3>{t("authModalTitle")}</h3>
+              <h3 className="modal-title-with-icon">
+                <KeyIcon size={16} />
+                <span>{t("authModalTitle")}</span>
+              </h3>
               <button
                 type="button"
                 className="modal-close"
                 onClick={() => setAuthModalOpen(false)}
+                aria-label="Close"
               >
-                ✕
+                <XIcon size={14} />
               </button>
             </div>
 
@@ -519,16 +529,79 @@ function AppContent() {
               setAuthModalOpen(true);
             }}
           />
-        ) : loading ? (
-          <p className="muted">{t("loadingCatalog")}</p>
-        ) : items.length === 0 ? (
-          <p className="muted">{query.trim() ? t("emptySearch") : t("emptyCatalog")}</p>
         ) : (
-          <div className="grid">
-            {items.map((pack) => (
-              <PackCard key={`${pack.owner}/${pack.name}`} pack={pack} />
-            ))}
-          </div>
+          <>
+            <div className="category-bar" role="tablist" aria-label="Pack categories">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === "all"}
+                data-category="all"
+                className={`category-pill${activeCategory === "all" ? " active" : ""}`}
+                onClick={() => setActiveCategory("all")}
+              >
+                <LayersIcon size={14} />
+                <span>{t("categoryAll")}</span>
+                <span className="category-count">{items.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === "offline"}
+                data-category="offline"
+                className={`category-pill${activeCategory === "offline" ? " active" : ""}`}
+                onClick={() => setActiveCategory("offline")}
+              >
+                <PackageIcon size={14} />
+                <span>{t("categoryOffline")}</span>
+                <span className="category-count">
+                  {items.filter((p) => p.mode === "offline").length}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === "runtime"}
+                data-category="runtime"
+                className={`category-pill${activeCategory === "runtime" ? " active" : ""}`}
+                onClick={() => setActiveCategory("runtime")}
+              >
+                <CpuIcon size={14} />
+                <span>{t("categoryRuntime")}</span>
+                <span className="category-count">
+                  {items.filter((p) => p.mode === "runtime").length}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeCategory === "endpoint"}
+                data-category="endpoint"
+                className={`category-pill${activeCategory === "endpoint" ? " active" : ""}`}
+                onClick={() => setActiveCategory("endpoint")}
+              >
+                <GlobeIcon size={14} />
+                <span>{t("categoryEndpoint")}</span>
+                <span className="category-count">
+                  {items.filter((p) => p.mode === "endpoint").length}
+                </span>
+              </button>
+            </div>
+
+            {loading ? (
+              <p className="muted">{t("loadingCatalog")}</p>
+            ) : filteredItems.length === 0 ? (
+              <p className="muted">
+                {query.trim() || activeCategory !== "all" ? t("emptySearch") : t("emptyCatalog")}
+              </p>
+            ) : (
+              <div className="grid">
+                {filteredItems.map((pack) => (
+                  <PackCard key={`${pack.owner}/${pack.name}`} pack={pack} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

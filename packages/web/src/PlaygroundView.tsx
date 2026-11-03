@@ -6,6 +6,13 @@ import {
   getStoredToken,
   runPackPlayground,
 } from "./api.js";
+import {
+  ClockIcon,
+  LockIcon,
+  PlayIcon,
+  ShieldIcon,
+  TerminalIcon,
+} from "./components.js";
 import { type Locale, translatePackText, translations, useI18n } from "./i18n.js";
 
 function buildDefaultPrompt(detail: PackDetail, loc: Locale): string {
@@ -262,9 +269,11 @@ export function PlaygroundView({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.25rem", flexWrap: "wrap", gap: "0.75rem" }}>
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <TerminalIcon size={16} />
                 <span>{t("playgroundTitle")}</span>
                 <span className="exec-badge">
-                  {t("playgroundBadge")}
+                  <ShieldIcon size={12} />
+                  <span>{t("playgroundBadge")}</span>
                 </span>
               </h3>
               <p style={{ margin: "4px 0 0 0", color: "#8892b0", fontSize: "0.85rem" }}>
@@ -296,16 +305,17 @@ export function PlaygroundView({
                 justifyContent: "space-between",
                 alignItems: "center",
                 gap: "0.75rem",
-                backgroundColor: "rgba(110, 168, 254, 0.1)",
-                border: "1px solid rgba(110, 168, 254, 0.3)",
+                backgroundColor: "rgba(110, 168, 254, 0.08)",
+                border: "1px solid rgba(110, 168, 254, 0.25)",
                 borderRadius: "8px",
                 padding: "0.75rem 1rem",
                 fontSize: "0.85rem",
                 color: "#c0caf5",
               }}
             >
-              <span>
-                {t("signInSandboxBanner")}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                <LockIcon size={14} />
+                <span>{t("signInSandboxBanner")}</span>
               </span>
               {onRequireAuth && (
                 <button
@@ -315,7 +325,7 @@ export function PlaygroundView({
                     padding: "5px 12px",
                     fontSize: "0.8rem",
                     borderRadius: "6px",
-                    backgroundColor: "rgba(110, 168, 254, 0.2)",
+                    backgroundColor: "rgba(110, 168, 254, 0.16)",
                     border: "1px solid #6ea8fe",
                     color: "#6ea8fe",
                     fontWeight: 600,
@@ -354,21 +364,17 @@ export function PlaygroundView({
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button
               type="button"
+              className="primary-btn"
               onClick={handleRun}
               disabled={running}
               style={{
-                display: "flex",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: "0.5rem",
-                padding: "7px 18px",
-                backgroundColor: running ? "#414868" : "#8A2BE2",
-                color: "#fff",
-                border: "none",
-                borderRadius: "6px",
+                gap: "0.45rem",
+                padding: "7px 16px",
+                borderRadius: "8px",
                 fontWeight: 600,
-                fontSize: "0.88rem",
-                cursor: running ? "not-allowed" : "pointer",
-                transition: "all 0.2s ease",
+                fontSize: "0.86rem",
                 whiteSpace: "nowrap",
               }}
             >
@@ -379,6 +385,7 @@ export function PlaygroundView({
                 </>
               ) : (
                 <>
+                  <PlayIcon size={14} />
                   <span>{t("runInSandbox")}</span>
                 </>
               )}
@@ -424,8 +431,9 @@ export function PlaygroundView({
               </span>
               {result && (
                 <>
-                  <span style={{ fontSize: "0.8rem", color: "#7aa2f7" }}>
-                    ⏱️ {Math.max(1, result.executionTimeMs)}ms
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "#7aa2f7" }}>
+                    <ClockIcon size={13} />
+                    <span>{Math.max(1, result.executionTimeMs)}ms</span>
                   </span>
                   <span style={{ fontSize: "0.8rem", color: "#565f89" }}>
                     {t("exitCodeLabel")} {result.exitCode}
