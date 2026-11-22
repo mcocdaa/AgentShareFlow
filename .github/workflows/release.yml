@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,6 +24,15 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+      - name: Verify version matches git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          for pkg in package.json packages/core/package.json packages/cli/package.json; do
+            ACTUAL=$(node -p "require('./$pkg').version")
+            echo "$pkg version: $ACTUAL (expected: $EXPECTED)"
+            test "$ACTUAL" = "$EXPECTED"
+          done
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build, test, typecheck, and verify release tarballs
@@ -32,12 +42,13 @@ jobs:
           pnpm typecheck
           bash scripts/verify-release.sh --archive dist-tarballs
       - name: Publish @agentshare/core
-        if: env.NODE_AUTH_TOKEN != ''
+        if: startsWith(github.ref, 'refs/tags/v') && env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/core publish --no-git-checks --access public --provenance
       - name: Publish @agentshare/cli
-        if: env.NODE_AUTH_TOKEN != ''
+        if: startsWith(github.ref, 'refs/tags/v') && env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/cli publish --no-git-checks --access public --provenance
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
