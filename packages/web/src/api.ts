@@ -3,6 +3,7 @@ import {
   type ClientToServerFrame,
   type DmMessage,
   type FriendRecord,
+  type IceServerConfig,
   type InboxItem,
   type NodePresence,
   type PairCodeRecord,
@@ -25,6 +26,7 @@ export interface ServerInfo {
   relayEnabled: boolean;
   needsBootstrap: boolean;
   maxAgentHops: number;
+  iceServers?: IceServerConfig[];
 }
 
 export interface InviteRecord {
@@ -56,6 +58,7 @@ export interface LocalNodeStatus {
   directUrl: string | null;
   online: boolean;
   relayEnabled: boolean;
+  webrtcEnabled?: boolean;
   serverUrl: string;
 }
 

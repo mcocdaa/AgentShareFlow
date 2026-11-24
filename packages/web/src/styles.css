@@ -35,11 +35,22 @@
   --ok-dark: #34d399;
   --ok-bg-light: rgba(15, 118, 110, 0.12);
   --ok-bg-dark: rgba(52, 211, 153, 0.14);
+  --ok-border-light: rgba(15, 118, 110, 0.38);
+  --ok-border-dark: rgba(52, 211, 153, 0.42);
+
+  --webrtc-light: #075985;
+  --webrtc-dark: #38bdf8;
+  --webrtc-bg-light: rgba(7, 89, 133, 0.12);
+  --webrtc-bg-dark: rgba(56, 189, 248, 0.14);
+  --webrtc-border-light: rgba(7, 89, 133, 0.38);
+  --webrtc-border-dark: rgba(56, 189, 248, 0.42);
 
   --warn-light: #b45309;
   --warn-dark: #fbbf24;
   --warn-bg-light: rgba(180, 83, 9, 0.12);
   --warn-bg-dark: rgba(251, 191, 36, 0.14);
+  --warn-border-light: rgba(180, 83, 9, 0.38);
+  --warn-border-dark: rgba(251, 191, 36, 0.42);
 
   --danger-light: #dc2626;
   --danger-dark: #f87171;
@@ -78,8 +89,13 @@
   --accent-contrast: var(--accent-contrast-light);
   --ok: var(--ok-light);
   --ok-bg: var(--ok-bg-light);
+  --ok-border: var(--ok-border-light);
+  --webrtc: var(--webrtc-light);
+  --webrtc-bg: var(--webrtc-bg-light);
+  --webrtc-border: var(--webrtc-border-light);
   --warn: var(--warn-light);
   --warn-bg: var(--warn-bg-light);
+  --warn-border: var(--warn-border-light);
   --danger: var(--danger-light);
   --danger-bg: var(--danger-bg-light);
   --mention-bg: var(--mention-bg-light);
@@ -126,8 +142,13 @@
     --accent-contrast: var(--accent-contrast-dark);
     --ok: var(--ok-dark);
     --ok-bg: var(--ok-bg-dark);
+    --ok-border: var(--ok-border-dark);
+    --webrtc: var(--webrtc-dark);
+    --webrtc-bg: var(--webrtc-bg-dark);
+    --webrtc-border: var(--webrtc-border-dark);
     --warn: var(--warn-dark);
     --warn-bg: var(--warn-bg-dark);
+    --warn-border: var(--warn-border-dark);
     --danger: var(--danger-dark);
     --danger-bg: var(--danger-bg-dark);
     --mention-bg: var(--mention-bg-dark);
@@ -156,8 +177,13 @@
   --accent-contrast: var(--accent-contrast-dark);
   --ok: var(--ok-dark);
   --ok-bg: var(--ok-bg-dark);
+  --ok-border: var(--ok-border-dark);
+  --webrtc: var(--webrtc-dark);
+  --webrtc-bg: var(--webrtc-bg-dark);
+  --webrtc-border: var(--webrtc-border-dark);
   --warn: var(--warn-dark);
   --warn-bg: var(--warn-bg-dark);
+  --warn-border: var(--warn-border-dark);
   --danger: var(--danger-dark);
   --danger-bg: var(--danger-bg-dark);
   --mention-bg: var(--mention-bg-dark);
@@ -186,8 +212,13 @@
     --accent-contrast: light-dark(var(--accent-contrast-light), var(--accent-contrast-dark));
     --ok: light-dark(var(--ok-light), var(--ok-dark));
     --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
+    --ok-border: light-dark(var(--ok-border-light), var(--ok-border-dark));
+    --webrtc: light-dark(var(--webrtc-light), var(--webrtc-dark));
+    --webrtc-bg: light-dark(var(--webrtc-bg-light), var(--webrtc-bg-dark));
+    --webrtc-border: light-dark(var(--webrtc-border-light), var(--webrtc-border-dark));
     --warn: light-dark(var(--warn-light), var(--warn-dark));
     --warn-bg: light-dark(var(--warn-bg-light), var(--warn-bg-dark));
+    --warn-border: light-dark(var(--warn-border-light), var(--warn-border-dark));
     --danger: light-dark(var(--danger-light), var(--danger-dark));
     --danger-bg: light-dark(var(--danger-bg-light), var(--danger-bg-dark));
     --mention-bg: light-dark(var(--mention-bg-light), var(--mention-bg-dark));
@@ -233,7 +264,7 @@ button {
   cursor: pointer;
 }
 
-:focus-visible {
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -313,7 +344,11 @@ button {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   font-weight: 500;
-  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease,
+    color 0.14s ease,
+    scale 0.12s ease;
 }
 
 .primary-btn {
@@ -324,6 +359,14 @@ button {
 
 .primary-btn:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+.primary-btn:active:not(:disabled),
+.ghost-btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.tab-btn:active:not(:disabled),
+.jump-btn:active:not(:disabled) {
+  scale: 0.98;
 }
 
 .primary-btn:disabled,
@@ -358,7 +401,8 @@ button {
 }
 
 .compact-btn {
-  padding: 4px 8px;
+  min-block-size: 28px;
+  padding: 4px 9px;
   font-size: 12px;
 }
 
@@ -478,12 +522,13 @@ input:user-valid {
   gap: 4px;
   border-radius: 999px;
   font-weight: 600;
+  line-height: 1.35;
   white-space: nowrap;
 }
 
 .status-pill {
   font-size: 11px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border: 1px solid transparent;
 }
 
@@ -491,6 +536,12 @@ input:user-valid {
   background: var(--ok-bg);
   color: var(--ok);
   border-color: var(--ok);
+}
+
+.status-pill-webrtc {
+  background: var(--webrtc-bg);
+  color: var(--webrtc);
+  border-color: var(--webrtc);
 }
 
 .status-pill-warn {
@@ -501,7 +552,7 @@ input:user-valid {
 
 .mini-pill {
   font-size: 11px;
-  padding: 1px 7px;
+  padding: 1px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text-secondary);
@@ -515,14 +566,25 @@ input:user-valid {
 
 .mini-pill-ok {
   background: var(--ok-bg);
-  border-color: transparent;
+  border-color: var(--ok-border);
   color: var(--ok);
+}
+
+.mini-pill-webrtc {
+  background: var(--webrtc-bg);
+  border-color: var(--webrtc-border);
+  color: var(--webrtc);
 }
 
 .mini-pill-warn {
   background: var(--warn-bg);
-  border-color: transparent;
+  border-color: var(--warn-border);
   color: var(--warn);
+}
+
+.transport-glyph {
+  font-size: 0.95em;
+  line-height: 1;
 }
 
 .kind-pill {
@@ -1339,7 +1401,7 @@ input:user-valid {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: 9px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1350,19 +1412,32 @@ input:user-valid {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 8px 12px;
   font-size: 12px;
 }
 
 .local-node-status {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.local-node-status-text {
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.local-webrtc-pill {
+  margin-inline-start: 2px;
 }
 
 .local-node-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
+  flex: none;
 }
 
 .local-node-form {
@@ -1973,6 +2048,40 @@ dialog.modal-dialog::backdrop {
   .loop-warning-banner {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (pointer: coarse) {
+  .compact-btn,
+  .icon-btn,
+  .tab-btn {
+    min-block-size: 36px;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  .status-pill,
+  .mini-pill,
+  .kind-pill,
+  .sender-pill {
+    border: 1px solid CanvasText;
+  }
+
+  .dot-online {
+    background: Highlight;
+    border: 1px solid Highlight;
+    box-shadow: none;
+  }
+
+  .dot-offline {
+    background: Canvas;
+    border: 1px solid GrayText;
+    opacity: 1;
   }
 }
 

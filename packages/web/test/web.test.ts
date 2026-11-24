@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { transportBadgeMeta } from "../src/components/DmPanel";
 import {
   isSafeExternalHref,
   parseMarkdownBlocks,
@@ -142,6 +143,47 @@ describe("mention autocomplete helpers", () => {
   });
 });
 
+describe("transportBadgeMeta", () => {
+  it("returns distinct labels, classes, and non-color glyphs for direct, webrtc, and relay", () => {
+    const direct = transportBadgeMeta("direct");
+    const webrtc = transportBadgeMeta("webrtc");
+    const relay = transportBadgeMeta("relay");
+
+    expect(direct).toEqual({
+      mode: "direct",
+      labelKey: "dm.transportDirect",
+      pillClass: "status-pill status-pill-ok",
+      miniPillClass: "mini-pill mini-pill-ok",
+      indicator: "⚡",
+    });
+    expect(webrtc).toEqual({
+      mode: "webrtc",
+      labelKey: "dm.transportWebrtc",
+      pillClass: "status-pill status-pill-webrtc",
+      miniPillClass: "mini-pill mini-pill-webrtc",
+      indicator: "⇄",
+    });
+    expect(relay).toEqual({
+      mode: "relay",
+      labelKey: "dm.transportRelay",
+      pillClass: "status-pill status-pill-warn",
+      miniPillClass: "mini-pill mini-pill-warn",
+      indicator: "⤴",
+    });
+
+    expect(new Set([direct.pillClass, webrtc.pillClass, relay.pillClass]).size).toBe(3);
+    expect(new Set([direct.miniPillClass, webrtc.miniPillClass, relay.miniPillClass]).size).toBe(3);
+    expect(new Set([direct.indicator, webrtc.indicator, relay.indicator]).size).toBe(3);
+
+    expect(translate("en", direct.labelKey)).toBe("P2P Direct");
+    expect(translate("zh", direct.labelKey)).toBe("P2P 直连");
+    expect(translate("en", webrtc.labelKey)).toBe("WebRTC P2P");
+    expect(translate("zh", webrtc.labelKey)).toBe("WebRTC 直连");
+    expect(translate("en", relay.labelKey)).toBe("Relay Encrypted");
+    expect(translate("zh", relay.labelKey)).toBe("加密中继");
+  });
+});
+
 describe("i18n en/zh dictionary parity", () => {
   it("has identical keys, non-empty values, and matching interpolation placeholders", () => {
     const enKeys = Object.keys(TRANSLATIONS.en).sort();
@@ -164,5 +206,9 @@ describe("i18n en/zh dictionary parity", () => {
 
     expect(translate("en", "room.maxHopsTag", { hops: 5 })).toBe("Loop limit: 5 hops");
     expect(translate("zh", "room.maxHopsTag", { hops: 5 })).toBe("防循环上限：5 跳");
+    expect(translate("en", "dm.localNodeWebrtcOn")).toBe("WebRTC NAT");
+    expect(translate("zh", "dm.localNodeWebrtcOn")).toBe("WebRTC NAT 穿透");
+    expect(translate("en", "dm.localNodeWebrtcOff")).toBe("WebRTC Off");
+    expect(translate("zh", "dm.localNodeWebrtcOff")).toBe("WebRTC 已关闭");
   });
 });

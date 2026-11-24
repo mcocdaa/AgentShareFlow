@@ -20,8 +20,46 @@ import {
   type LocalNodeStatus,
   type PendingApproval,
 } from "../api";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslationKey } from "../i18n";
 import { MarkdownView } from "./MarkdownView";
+
+export interface TransportBadgeMeta {
+  mode: TransportMode;
+  labelKey: TranslationKey;
+  pillClass: string;
+  miniPillClass: string;
+  indicator: string;
+}
+
+export function transportBadgeMeta(transport: TransportMode): TransportBadgeMeta {
+  switch (transport) {
+    case "webrtc":
+      return {
+        mode: "webrtc",
+        labelKey: "dm.transportWebrtc",
+        pillClass: "status-pill status-pill-webrtc",
+        miniPillClass: "mini-pill mini-pill-webrtc",
+        indicator: "⇄",
+      };
+    case "relay":
+      return {
+        mode: "relay",
+        labelKey: "dm.transportRelay",
+        pillClass: "status-pill status-pill-warn",
+        miniPillClass: "mini-pill mini-pill-warn",
+        indicator: "⤴",
+      };
+    case "direct":
+    default:
+      return {
+        mode: "direct",
+        labelKey: "dm.transportDirect",
+        pillClass: "status-pill status-pill-ok",
+        miniPillClass: "mini-pill mini-pill-ok",
+        indicator: "⚡",
+      };
+  }
+}
 
 interface DmPanelProps {
   peer: NodePresence;
@@ -261,14 +299,16 @@ export function DmPanel({
 
   const effectiveTransport: TransportMode =
     lastTransport ??
-    (peer.directUrl ? "direct" : relayEnabled ? "relay" : "direct");
+    (peer.directUrl
+      ? "direct"
+      : localStatus?.webrtcEnabled !== false
+        ? "webrtc"
+        : relayEnabled
+          ? "relay"
+          : "direct");
 
-  const transportLabel =
-    effectiveTransport === "relay"
-      ? t("dm.transportRelay")
-      : effectiveTransport === "webrtc"
-        ? t("dm.transportWebrtc")
-        : t("dm.transportDirect");
+  const headerTransport = transportBadgeMeta(effectiveTransport);
+  const localWebrtcEnabled = localStatus?.webrtcEnabled !== false;
 
   const dmStatusLabel = (status: DmMessage["status"]): string => {
     switch (status) {
@@ -319,13 +359,13 @@ export function DmPanel({
 
         <div className="pane-header-right">
           <span
-            className={
-              effectiveTransport === "relay"
-                ? "status-pill status-pill-warn"
-                : "status-pill status-pill-ok"
-            }
+            className={headerTransport.pillClass}
+            data-transport={headerTransport.mode}
           >
-            {transportLabel}
+            <span className="transport-glyph" aria-hidden="true">
+              {headerTransport.indicator}
+            </span>
+            {t(headerTransport.labelKey)}
           </span>
         </div>
       </header>
@@ -337,7 +377,7 @@ export function DmPanel({
 
         <div className="local-node-bar">
           <div className="local-node-summary">
-            <span className="local-node-status">
+            <div className="local-node-status">
               <span
                 className={
                   localStatus
@@ -346,15 +386,36 @@ export function DmPanel({
                 }
                 aria-hidden="true"
               />
-              <strong>{t("dm.localNodeTitle")}:</strong>{" "}
-              {localStatus
-                ? t("dm.localNodeConnected", { handle: localStatus.handle })
-                : t("dm.localNodeDisconnected")}
-            </span>
+              <span className="local-node-status-text">
+                <strong>{t("dm.localNodeTitle")}:</strong>{" "}
+                {localStatus
+                  ? t("dm.localNodeConnected", { handle: localStatus.handle })
+                  : t("dm.localNodeDisconnected")}
+              </span>
+              {localStatus ? (
+                <span
+                  className={
+                    localWebrtcEnabled
+                      ? "mini-pill mini-pill-webrtc local-webrtc-pill"
+                      : "mini-pill local-webrtc-pill"
+                  }
+                  data-webrtc={localWebrtcEnabled ? "on" : "off"}
+                >
+                  <span className="transport-glyph" aria-hidden="true">
+                    {localWebrtcEnabled ? "⇄" : "○"}
+                  </span>
+                  {localWebrtcEnabled
+                    ? t("dm.localNodeWebrtcOn")
+                    : t("dm.localNodeWebrtcOff")}
+                </span>
+              ) : null}
+            </div>
             <div className="local-node-actions">
               <button
                 type="button"
                 className="ghost-btn compact-btn"
+                aria-expanded={showConfigForm}
+                aria-controls="local-node-config-form"
                 onClick={() => setShowConfigForm((v) => !v)}
               >
                 {t("dm.localNodeConfigure")}
@@ -372,8 +433,14 @@ export function DmPanel({
           </div>
 
           {showConfigForm ? (
-            <form className="local-node-form" onSubmit={handleConnect}>
-              <p className="field-hint">{t("dm.localNodeSetupHint")}</p>
+            <form
+              id="local-node-config-form"
+              className="local-node-form"
+              onSubmit={handleConnect}
+            >
+              <p id="local-node-setup-hint" className="field-hint">
+                {t("dm.localNodeSetupHint")}
+              </p>
               <div className="local-node-inputs">
                 <div className="field">
                   <label htmlFor="local-node-url">{t("dm.localNodeUrl")}</label>
@@ -382,6 +449,7 @@ export function DmPanel({
                     type="url"
                     required
                     spellCheck={false}
+                    aria-describedby="local-node-setup-hint"
                     placeholder={t("dm.localNodeUrlPlaceholder")}
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
@@ -492,6 +560,7 @@ export function DmPanel({
         ) : (
           messages.map((msg) => {
             const isOut = msg.direction === "out";
+            const msgTransport = transportBadgeMeta(msg.transport);
             return (
               <article
                 key={msg.id}
@@ -513,17 +582,13 @@ export function DmPanel({
                       {isOut ? `${t("dm.you")} (@${localStatus.handle})` : `@${msg.peerHandle}`}
                     </span>
                     <span
-                      className={
-                        msg.transport === "relay"
-                          ? "mini-pill mini-pill-warn"
-                          : "mini-pill mini-pill-ok"
-                      }
+                      className={msgTransport.miniPillClass}
+                      data-transport={msgTransport.mode}
                     >
-                      {msg.transport === "relay"
-                        ? t("dm.transportRelay")
-                        : msg.transport === "webrtc"
-                          ? t("dm.transportWebrtc")
-                          : t("dm.transportDirect")}
+                      <span className="transport-glyph" aria-hidden="true">
+                        {msgTransport.indicator}
+                      </span>
+                      {t(msgTransport.labelKey)}
                     </span>
                     {msg.encrypted ? (
                       <span className="mini-pill">{t("dm.encryptedBadge")}</span>
