@@ -1,4 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +18,8 @@ const repoRoot = path.resolve(__dirname, "..");
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "8787");
+const webHost = process.env.WEB_HOST ?? host;
+const webPort = Number(process.env.WEB_PORT ?? "5173");
 const adminUser = process.env.AGENTSHARE_ADMIN_USER ?? "admin";
 const adminPass = process.env.AGENTSHARE_ADMIN_PASS ?? "admin1234";
 const demoRoot =
@@ -29,6 +33,129 @@ mkdirSync(serverDataDir, { recursive: true });
 mkdirSync(botHomeDir, { recursive: true });
 mkdirSync(mcpHomeDir, { recursive: true });
 
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".txt": "text/plain; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+};
+
+function startStaticWebServer({ host: bindHost, port: bindPort, distDir }) {
+  const resolvedRoot = path.resolve(distDir);
+  const indexPath = path.join(resolvedRoot, "index.html");
+  if (!existsSync(indexPath)) {
+    throw new Error(
+      `Built Web UI not found at ${indexPath}. Run "pnpm build" before "pnpm demo".`,
+    );
+  }
+  const rootWithSep = resolvedRoot.endsWith(path.sep)
+    ? resolvedRoot
+    : `${resolvedRoot}${path.sep}`;
+
+  const httpServer = createServer(async (req, res) => {
+    try {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Method Not Allowed");
+        return;
+      }
+
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      let decodedPath;
+      try {
+        decodedPath = decodeURIComponent(url.pathname);
+      } catch {
+        res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Bad Request");
+        return;
+      }
+      if (decodedPath.includes("\0")) {
+        res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Bad Request");
+        return;
+      }
+
+      const relativePath = decodedPath.replace(/^\/+/, "");
+      let filePath = indexPath;
+      let contentType = MIME_TYPES[".html"];
+      if (relativePath.length > 0) {
+        const candidate = path.resolve(resolvedRoot, relativePath);
+        if (!candidate.startsWith(rootWithSep)) {
+          res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+          res.end("Forbidden");
+          return;
+        }
+        if (existsSync(candidate) && statSync(candidate).isFile()) {
+          filePath = candidate;
+          contentType =
+            MIME_TYPES[path.extname(candidate).toLowerCase()] ??
+            "application/octet-stream";
+        } else if (relativePath.startsWith("assets/")) {
+          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          res.end("Not Found");
+          return;
+        }
+      }
+
+      const body = await readFile(filePath);
+      res.writeHead(200, {
+        "content-type": contentType,
+        "content-length": String(body.byteLength),
+        "x-content-type-options": "nosniff",
+        "cache-control":
+          filePath === indexPath
+            ? "no-cache"
+            : "public, max-age=31536000, immutable",
+      });
+      if (req.method === "HEAD") {
+        res.end();
+      } else {
+        res.end(body);
+      }
+    } catch {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      }
+      res.end("Internal Server Error");
+    }
+  });
+
+  return new Promise((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(bindPort, bindHost, () => {
+      httpServer.off("error", reject);
+      const addr = httpServer.address();
+      const actualPort = typeof addr === "object" && addr ? addr.port : bindPort;
+      const displayHost =
+        bindHost === "0.0.0.0" || bindHost === "::"
+          ? "127.0.0.1"
+          : bindHost.includes(":")
+            ? `[${bindHost}]`
+            : bindHost;
+      resolve({
+        url: `http://${displayHost}:${actualPort}`,
+        close: () =>
+          new Promise((done) => {
+            httpServer.close(() => done());
+            httpServer.closeAllConnections?.();
+          }),
+      });
+    });
+  });
+}
+
 async function main() {
   const server = await startServer({
     host,
@@ -38,7 +165,12 @@ async function main() {
     relayEnabled: false,
     adminUser,
     adminPass,
-    webDistDir: path.resolve(repoRoot, "packages/web/dist"),
+  });
+
+  const webServer = await startStaticWebServer({
+    host: webHost,
+    port: webPort,
+    distDir: path.resolve(repoRoot, "packages/web/dist"),
   });
 
   const api = new ServerApiClient({ serverUrl: server.url });
@@ -89,6 +221,7 @@ async function main() {
     bindHost: "127.0.0.1",
     port: 0,
     allowPrivate: true,
+    allowedOrigins: [webServer.url],
     onLog: (msg) => process.stderr.write(`[helper-bot] ${msg}\n`),
   });
 
@@ -111,7 +244,8 @@ async function main() {
   console.log("==============================================================");
   console.log("  AgentShareFlow v2 Demo Ready");
   console.log("==============================================================");
-  console.log(`  Web UI / API:    ${server.url}`);
+  console.log(`  API Server:      ${server.url}`);
+  console.log(`  Web UI:          ${webServer.url}/?server=${encodeURIComponent(server.url)}`);
   console.log(`  Default Room:    #${general.slug} (${general.id})`);
   console.log(`  Admin Login:     ${adminUser} / ${adminPass}`);
   console.log(`  Invite Code:     ${invite.code}`);
@@ -134,6 +268,7 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log("\nShutting down AgentShareFlow demo...");
+    await webServer.close().catch(() => {});
     await botDaemon.close().catch(() => {});
     await demoBot.close().catch(() => {});
     await server.close().catch(() => {});

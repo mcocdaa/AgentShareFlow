@@ -20,9 +20,11 @@ COPY packages/web/package.json ./packages/web/
 
 RUN pnpm install --frozen-lockfile
 
-COPY packages ./packages
+COPY packages/core ./packages/core
+COPY packages/server ./packages/server
 
-RUN pnpm build
+RUN pnpm --filter @agentshare/core build \
+ && pnpm --filter @agentshare/server build
 
 FROM pnpm-base AS prod-deps
 
@@ -48,12 +50,12 @@ COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=prod-deps /app/packages/server/package.json ./packages/server/package.json
 COPY --from=prod-deps /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
-COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
 ENV NODE_ENV=production \
     PORT=8787 \
     AGENTSHARE_DATA=/data \
-    AGENTSHARE_ENABLE_RELAY=false
+    AGENTSHARE_ENABLE_RELAY=false \
+    AGENTSHARE_CORS_ORIGINS=*
 
 EXPOSE 8787
 VOLUME ["/data"]
