@@ -17,7 +17,7 @@ import {
 import { DbError, type ServerDb } from "./db.js";
 import type { ServerHub } from "./hub.js";
 
-const SERVER_VERSION = "2.0.0";
+const SERVER_VERSION = "2.1.0";
 const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
 
 function normalizeOrigin(origin: string): string {
