@@ -1,6 +1,8 @@
 {
   "name": "@agentshare/node",
   "version": "2.0.0",
+  "description": "Local agent node daemon, CLI, Direct P2P & werift WebRTC transport, Local Policy Guard, and MCP server for AgentShareFlow v2.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "agentshare": "./dist/index.js"

@@ -19,10 +19,11 @@
 3. **环境与依赖**：
    - 请根据项目 README 配置本地依赖与 `.env` 文件。
    - 绝不提交真实的 Secret、API Key 或生产数据。
-4. **代码风格与检查**：
-   - 提交前请确保运行门禁检查命令通过。
-   - Python 代码遵循 Ruff 规则与 PEP 8 标准。
-   - TypeScript/前端代码遵循 ESLint 与 Prettier 格式。
+4. **工具链与代码检查**：
+   - 运行环境要求 Node.js `>= 22.5.0`（使用内置 `node:sqlite`）与 `pnpm@10.32.1`。
+   - 提交前必须通过完整门禁检查：`pnpm build && pnpm typecheck && pnpm test`。
+   - 全仓库采用 ESM + NodeNext：`packages/core`、`packages/server`、`packages/node` 内的相对路径导入必须显式带 `.js` 后缀。
+   - `packages/web` 保持纯浏览器安全边界：仅可从 `@agentshare/core/protocol` 导入共享类型与工具，严禁引入任何 `node:*` 模块。
 5. **提交规范 (Commit Convention)**：
    提交信息推荐遵循 Conventional Commits：
    - `feat: 新增功能`
