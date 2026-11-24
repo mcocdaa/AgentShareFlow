@@ -1,7 +1,7 @@
 packages:
   - packages/core
-  - packages/cli
-  - packages/registry
+  - packages/server
+  - packages/node
   - packages/web
 onlyBuiltDependencies:
   - esbuild

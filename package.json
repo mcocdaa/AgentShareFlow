@@ -1,7 +1,7 @@
 {
   "name": "agentshareflow",
   "private": true,
-  "version": "0.2.0",
+  "version": "2.0.0",
   "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22.5.0"
@@ -11,12 +11,9 @@
     "dev": "pnpm -r --parallel dev",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "registry": "pnpm --filter @agentshare/registry dev",
+    "server": "pnpm --filter @agentshare/server dev",
     "web": "pnpm --filter @agentshare/web dev",
-    "cli": "pnpm --filter @agentshare/cli dev --",
-    "dsh:sync": "bash scripts/sync-dsh-plugin.sh",
-    "mock:share": "node scripts/mock-share-agent.mjs",
-    "mock:a2a": "node scripts/mock-a2a-agent.mjs",
-    "verify:release": "bash scripts/verify-release.sh"
+    "node": "pnpm --filter @agentshare/node dev --",
+    "demo": "node scripts/demo.mjs"
   }
 }

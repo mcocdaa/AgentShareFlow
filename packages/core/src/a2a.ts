@@ -1,174 +1,293 @@
-export interface A2AAgentSkill {
-  id: string;
-  name: string;
-  description?: string;
-  tags?: string[];
+import { randomUUID } from "node:crypto";
+import { assertSafeExternalUrl, type DnsLookupFn } from "./ssrf.js";
+
+export interface ContextMessage {
+  sender: string;
+  content: string;
 }
 
-export interface A2AAgentCard {
-  name: string;
-  description?: string;
-  version?: string;
+export interface SendHttpOrA2aOptions {
   url: string;
-  protocolVersion?: string;
-  capabilities?: Record<string, unknown>;
-  defaultInputModes?: string[];
-  defaultOutputModes?: string[];
-  skills?: A2AAgentSkill[];
-  [key: string]: unknown;
-}
-
-export interface A2AMessagePart {
-  text?: string;
-  [key: string]: unknown;
-}
-
-export interface A2ASendResult {
-  text: string;
-  contextId?: string;
-  taskId?: string;
-  state?: string;
-}
-
-export interface A2AClientOptions {
-  fetchImpl?: typeof fetch;
+  mode: "http" | "a2a";
+  message: string;
+  context?: ContextMessage[];
+  from: string;
+  roomId?: string | null;
+  headers?: Record<string, string>;
+  allowPrivate?: boolean;
   timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+  lookupFn?: DnsLookupFn;
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-
-export function agentCardUrl(base: string): string {
-  const url = new URL(base);
-  if (url.pathname.endsWith(".json")) return url.toString();
-  return new URL("/.well-known/agent-card.json", url).toString();
+export interface SendHttpOrA2aResult {
+  reply: string;
+  taskId?: string;
 }
 
-export async function fetchAgentCard(base: string, options: A2AClientOptions = {}): Promise<A2AAgentCard> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const res = await fetchImpl(agentCardUrl(base), {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`agent card fetch failed: HTTP ${res.status}`);
-  const card = (await res.json()) as Partial<A2AAgentCard>;
-  if (typeof card.name !== "string" || typeof card.url !== "string") {
-    throw new Error("invalid agent card: name and url are required");
-  }
-  return card as A2AAgentCard;
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function textFromParts(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
+function extractTextFromParts(parts: unknown): string[] {
+  if (!Array.isArray(parts)) return [];
   const texts: string[] = [];
-  for (const part of value) {
-    if (typeof part !== "object" || part === null) continue;
-    const record = part as Record<string, unknown>;
-    if (typeof record["text"] === "string") texts.push(record["text"]);
-  }
-  return texts;
-}
-
-export function extractA2AText(result: unknown): string[] {
-  if (typeof result !== "object" || result === null) return [];
-  const record = result as Record<string, unknown>;
-  const texts: string[] = [];
-
-  const message = record["message"];
-  if (typeof message === "object" && message !== null) {
-    texts.push(...textFromParts((message as Record<string, unknown>)["parts"]));
-  }
-
-  const task = record["task"];
-  if (typeof task === "object" && task !== null) {
-    const taskRecord = task as Record<string, unknown>;
-    const artifacts = taskRecord["artifacts"];
-    if (Array.isArray(artifacts)) {
-      for (const artifact of artifacts) {
-        if (typeof artifact !== "object" || artifact === null) continue;
-        texts.push(...textFromParts((artifact as Record<string, unknown>)["parts"]));
-      }
-    }
-    const history = taskRecord["history"];
-    if (Array.isArray(history)) {
-      for (const entry of history) {
-        if (typeof entry !== "object" || entry === null) continue;
-        const entryRecord = entry as Record<string, unknown>;
-        if (entryRecord["role"] !== "agent") continue;
-        texts.push(...textFromParts(entryRecord["parts"]));
-      }
-    }
-    const status = taskRecord["status"];
-    if (typeof status === "object" && status !== null) {
-      const statusMessage = (status as Record<string, unknown>)["message"];
-      if (typeof statusMessage === "object" && statusMessage !== null) {
-        texts.push(...textFromParts((statusMessage as Record<string, unknown>)["parts"]));
-      }
+  for (const part of parts) {
+    if (!isRecord(part)) continue;
+    if (typeof part["text"] === "string") {
+      texts.push(part["text"]);
     }
   }
   return texts;
 }
 
-interface JsonRpcResponse {
-  result?: unknown;
-  error?: { code?: number; message?: string };
+function extractFromTaskObject(task: Record<string, unknown>): {
+  texts: string[];
+  taskId?: string;
+} {
+  const texts: string[] = [];
+  const taskId = typeof task["id"] === "string" ? task["id"] : undefined;
+
+  const artifacts = task["artifacts"];
+  if (Array.isArray(artifacts)) {
+    for (const artifact of artifacts) {
+      if (!isRecord(artifact)) continue;
+      texts.push(...extractTextFromParts(artifact["parts"]));
+    }
+  }
+
+  const status = task["status"];
+  if (isRecord(status) && isRecord(status["message"])) {
+    texts.push(...extractTextFromParts(status["message"]["parts"]));
+  }
+
+  const history = task["history"];
+  if (Array.isArray(history)) {
+    for (const entry of history) {
+      if (!isRecord(entry)) continue;
+      const role = entry["role"];
+      if (role !== "agent" && role !== "assistant") continue;
+      texts.push(...extractTextFromParts(entry["parts"]));
+    }
+  }
+
+  return { texts, taskId };
 }
 
-async function callJsonRpc(
-  endpoint: string,
-  method: string,
-  params: unknown,
-  options: A2AClientOptions,
-): Promise<JsonRpcResponse> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const res = await fetchImpl(endpoint, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }),
-    signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`A2A request failed: HTTP ${res.status}`);
-  return (await res.json()) as JsonRpcResponse;
+function extractFromMessageObject(message: Record<string, unknown>): {
+  texts: string[];
+  taskId?: string;
+} {
+  const texts = extractTextFromParts(message["parts"]);
+  const taskId =
+    typeof message["taskId"] === "string" ? message["taskId"] : undefined;
+  return { texts, taskId };
 }
 
-export interface A2ASendOptions extends A2AClientOptions {
-  contextId?: string;
-  referenceTaskIds?: string[];
-}
+export function extractA2aResult(result: unknown): SendHttpOrA2aResult {
+  if (!isRecord(result)) {
+    throw new Error("Invalid A2A response: result must be an object");
+  }
 
-export async function sendA2AMessage(
-  endpoint: string,
-  text: string,
-  options: A2ASendOptions = {},
-): Promise<A2ASendResult> {
-  const message = {
-    role: "user",
-    parts: [{ text }],
-    messageId: crypto.randomUUID(),
-    ...options.contextId === undefined ? {} : { contextId: options.contextId },
-    ...options.referenceTaskIds === undefined ? {} : { referenceTaskIds: options.referenceTaskIds },
+  const collected: string[] = [];
+  let taskId: string | undefined;
+
+  const appendUnique = (items: string[]) => {
+    for (const item of items) {
+      const trimmed = item.trim();
+      if (trimmed && !collected.includes(trimmed)) {
+        collected.push(trimmed);
+      }
+    }
   };
 
-  let payload = await callJsonRpc(endpoint, "SendMessage", { message }, options);
-  if (payload.error?.code === -32601) {
-    payload = await callJsonRpc(endpoint, "message/send", { message }, options);
+  // Wrapped union shapes (A2A v1 / protobuf-JSON): result.message and/or result.task
+  if (isRecord(result["message"])) {
+    const extracted = extractFromMessageObject(result["message"]);
+    appendUnique(extracted.texts);
+    if (extracted.taskId) taskId = extracted.taskId;
   }
-  if (payload.error) throw new Error(payload.error.message ?? `A2A error ${payload.error.code ?? ""}`);
-  if (payload.result === undefined) throw new Error("A2A response has no result");
 
-  const result = payload.result as Record<string, unknown>;
-  const task = result["task"] as Record<string, unknown> | undefined;
-  const messageResult = result["message"] as Record<string, unknown> | undefined;
-  const contextId =
-    (typeof task?.["contextId"] === "string" ? task["contextId"] : undefined) ??
-    (typeof messageResult?.["contextId"] === "string" ? messageResult["contextId"] : undefined) ??
-    options.contextId;
+  if (isRecord(result["task"])) {
+    const extracted = extractFromTaskObject(result["task"]);
+    appendUnique(extracted.texts);
+    if (extracted.taskId) taskId = extracted.taskId;
+  }
+
+  // Top-level A2A v0.2/v0.3 Message shape
+  if (result["kind"] === "message" || Array.isArray(result["parts"])) {
+    const extracted = extractFromMessageObject(result);
+    appendUnique(extracted.texts);
+    if (extracted.taskId && !taskId) taskId = extracted.taskId;
+  }
+
+  // Top-level A2A v0.2/v0.3 Task shape
+  if (
+    result["kind"] === "task" ||
+    "artifacts" in result ||
+    "status" in result ||
+    "history" in result
+  ) {
+    const extracted = extractFromTaskObject(result);
+    appendUnique(extracted.texts);
+    if (extracted.taskId && !taskId) taskId = extracted.taskId;
+  }
 
   return {
-    text: extractA2AText(result).join("\n").trim(),
-    ...contextId === undefined ? {} : { contextId },
-    ...task === undefined || typeof task["id"] !== "string" ? {} : { taskId: task["id"] },
-    ...task === undefined || typeof (task["status"] as Record<string, unknown> | undefined)?.["state"] !== "string"
-      ? {}
-      : { state: (task["status"] as Record<string, unknown>)["state"] as string },
+    reply: collected.join("\n"),
+    ...(taskId !== undefined ? { taskId } : {}),
   };
+}
+
+function buildHeaders(
+  custom?: Record<string, string>,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json",
+  };
+  if (custom) {
+    for (const [key, value] of Object.entries(custom)) {
+      headers[key] = value;
+    }
+  }
+  return headers;
+}
+
+async function postJsonNoRedirect(
+  safeUrl: URL,
+  body: unknown,
+  headers: Record<string, string>,
+  timeoutMs: number,
+  fetchImpl: typeof fetch,
+): Promise<Response> {
+  const res = await fetchImpl(safeUrl.toString(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    redirect: "manual",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(
+      `Redirect blocked for security (HTTP ${res.status} from ${safeUrl.origin})`,
+    );
+  }
+
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 256);
+    throw new Error(
+      `Remote agent request failed with HTTP ${res.status}${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  return res;
+}
+
+export async function sendHttpOrA2aMessage(
+  opts: SendHttpOrA2aOptions,
+): Promise<SendHttpOrA2aResult> {
+  const safeUrl = await assertSafeExternalUrl(opts.url, {
+    allowPrivate: opts.allowPrivate,
+    lookupFn: opts.lookupFn,
+  });
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const headers = buildHeaders(opts.headers);
+
+  if (opts.mode === "http") {
+    const res = await postJsonNoRedirect(
+      safeUrl,
+      {
+        message: opts.message,
+        from: opts.from,
+        roomId: opts.roomId ?? null,
+        context: opts.context ?? [],
+      },
+      headers,
+      timeoutMs,
+      fetchImpl,
+    );
+
+    const rawText = await res.text();
+    try {
+      const parsed: unknown = JSON.parse(rawText);
+      if (typeof parsed === "string") {
+        return { reply: parsed };
+      }
+      if (isRecord(parsed)) {
+        const taskId =
+          typeof parsed["taskId"] === "string" ? parsed["taskId"] : undefined;
+        for (const field of ["reply", "text", "output", "content", "message"]) {
+          if (typeof parsed[field] === "string") {
+            return {
+              reply: parsed[field],
+              ...(taskId !== undefined ? { taskId } : {}),
+            };
+          }
+        }
+        throw new Error(
+          "HTTP agent JSON response missing reply/text/output/content/message string field",
+        );
+      }
+      throw new Error("HTTP agent returned unsupported JSON response");
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        return { reply: rawText.trim() };
+      }
+      throw err;
+    }
+  }
+
+  const rpcParams = {
+    message: {
+      kind: "message",
+      messageId: randomUUID(),
+      role: "user",
+      parts: [{ kind: "text", text: opts.message }],
+      metadata: {
+        from: opts.from,
+        ...(opts.roomId !== undefined ? { roomId: opts.roomId } : {}),
+        ...(opts.context !== undefined ? { context: opts.context } : {}),
+      },
+    },
+  };
+
+  const callA2a = async (method: string): Promise<Record<string, unknown>> => {
+    const res = await postJsonNoRedirect(
+      safeUrl,
+      {
+        jsonrpc: "2.0",
+        id: randomUUID(),
+        method,
+        params: rpcParams,
+      },
+      headers,
+      timeoutMs,
+      fetchImpl,
+    );
+    const data: unknown = await res.json();
+    if (!isRecord(data)) {
+      throw new Error("Invalid A2A JSON-RPC response");
+    }
+    return data;
+  };
+
+  let rpc = await callA2a("message/send");
+  if (isRecord(rpc["error"]) && rpc["error"]["code"] === -32601) {
+    rpc = await callA2a("SendMessage");
+  }
+
+  if (isRecord(rpc["error"])) {
+    const code = rpc["error"]["code"];
+    const message = rpc["error"]["message"];
+    throw new Error(
+      `A2A JSON-RPC error${code !== undefined ? ` (${String(code)})` : ""}: ${typeof message === "string" ? message : "unknown error"}`,
+    );
+  }
+
+  return extractA2aResult(rpc["result"]);
 }

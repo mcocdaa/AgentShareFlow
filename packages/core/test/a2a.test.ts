@@ -1,141 +1,189 @@
-import { describe, expect, it, vi } from "vitest";
-import { agentCardUrl, extractA2AText, fetchAgentCard, sendA2AMessage } from "../src/index.js";
+import { describe, expect, it } from "vitest";
+import { extractA2aResult, sendHttpOrA2aMessage } from "../src/a2a.js";
 
-const card = {
-  name: "mock agent",
-  description: "answers things",
-  url: "http://agent.test/rpc",
-  version: "1.0.0",
-  skills: [{ id: "chat", name: "Chat" }],
-};
+const publicLookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
-describe("agentCardUrl", () => {
-  it("derives the well-known path from a base url", () => {
-    expect(agentCardUrl("http://agent.test")).toBe("http://agent.test/.well-known/agent-card.json");
-    expect(agentCardUrl("http://agent.test/base/")).toBe(
-      "http://agent.test/.well-known/agent-card.json",
-    );
-    expect(agentCardUrl("http://agent.test/custom/card.json")).toBe(
-      "http://agent.test/custom/card.json",
-    );
-  });
-});
-
-describe("fetchAgentCard", () => {
-  it("fetches and validates a card", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(card), { status: 200 }));
-    const result = await fetchAgentCard("http://agent.test", {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+describe("extractA2aResult", () => {
+  it("parses A2A v0.2/v0.3 top-level Message", () => {
+    const res = extractA2aResult({
+      kind: "message",
+      messageId: "m-1",
+      role: "agent",
+      taskId: "t-1",
+      parts: [{ kind: "text", text: "Hello from top-level message" }],
     });
-    expect(result.name).toBe("mock agent");
-    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
-      "http://agent.test/.well-known/agent-card.json",
-    );
+    expect(res).toEqual({
+      reply: "Hello from top-level message",
+      taskId: "t-1",
+    });
   });
 
-  it("rejects invalid cards and http errors", async () => {
-    const bad = vi.fn(async () => new Response(JSON.stringify({ name: "x" }), { status: 200 }));
-    await expect(
-      fetchAgentCard("http://agent.test", { fetchImpl: bad as unknown as typeof fetch }),
-    ).rejects.toThrow(/invalid agent card/);
-    const notFound = vi.fn(async () => new Response("nope", { status: 404 }));
-    await expect(
-      fetchAgentCard("http://agent.test", { fetchImpl: notFound as unknown as typeof fetch }),
-    ).rejects.toThrow(/HTTP 404/);
+  it("parses A2A v0.2/v0.3 top-level Task (artifacts, status, agent history, deduped)", () => {
+    const res = extractA2aResult({
+      kind: "task",
+      id: "task-99",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ kind: "text", text: "All checks passed." }],
+        },
+      },
+      artifacts: [
+        {
+          parts: [{ kind: "text", text: "Build green" }],
+        },
+      ],
+      history: [
+        { role: "user", parts: [{ kind: "text", text: "Do not echo user" }] },
+        { role: "agent", parts: [{ kind: "text", text: "Build green" }] },
+      ],
+    });
+    expect(res).toEqual({
+      reply: "Build green\nAll checks passed.",
+      taskId: "task-99",
+    });
   });
-});
 
-describe("extractA2AText", () => {
-  it("collects task artifacts, agent history, and status messages", () => {
+  it("parses wrapped result.message and result.task", () => {
     expect(
-      extractA2AText({
-        task: {
-          artifacts: [{ parts: [{ text: "artifact" }] }],
-          history: [
-            { role: "user", parts: [{ text: "ignored" }] },
-            { role: "agent", parts: [{ text: "history" }] },
-          ],
-          status: { state: "TASK_STATE_COMPLETED", message: { parts: [{ text: "status" }] } },
+      extractA2aResult({
+        message: {
+          role: "agent",
+          taskId: "t-msg",
+          parts: [{ text: "Wrapped message" }],
         },
       }),
-    ).toEqual(["artifact", "history", "status"]);
-  });
+    ).toEqual({ reply: "Wrapped message", taskId: "t-msg" });
 
-  it("collects message results", () => {
-    expect(extractA2AText({ message: { role: "agent", parts: [{ text: "hello" }] } })).toEqual([
-      "hello",
-    ]);
+    expect(
+      extractA2aResult({
+        task: {
+          id: "t-wrap",
+          artifacts: [{ parts: [{ text: "Wrapped task" }] }],
+        },
+      }),
+    ).toEqual({ reply: "Wrapped task", taskId: "t-wrap" });
   });
 });
 
-describe("sendA2AMessage", () => {
-  it("sends SendMessage and returns task text with context", async () => {
-    let body: Record<string, unknown> | undefined;
-    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: "1",
-          result: {
-            task: {
-              id: "task-1",
-              contextId: "ctx-1",
-              status: { state: "TASK_STATE_COMPLETED" },
-              artifacts: [{ parts: [{ text: "pong" }] }],
-            },
-          },
-        }),
-        { status: 200 },
-      );
+describe("sendHttpOrA2aMessage", () => {
+  it("sends HTTP mode request preserving subpath and custom headers", async () => {
+    let seenUrl = "";
+    let seenHeaders: Record<string, string> = {};
+    let seenBody: unknown;
+
+    const result = await sendHttpOrA2aMessage({
+      url: "https://agent.example/custom/subpath/chat",
+      mode: "http",
+      message: "Check deployment",
+      from: "alice",
+      roomId: "room-ops",
+      context: [{ sender: "bob", content: "v2.0 deployed" }],
+      headers: { authorization: "Bearer secret-token" },
+      lookupFn: publicLookup,
+      fetchImpl: async (input, init) => {
+        seenUrl = String(input);
+        seenHeaders = (init?.headers ?? {}) as Record<string, string>;
+        seenBody = JSON.parse(String(init?.body));
+        expect(init?.redirect).toBe("manual");
+        return new Response(
+          JSON.stringify({ reply: "Deployment healthy", taskId: "http-1" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
     });
 
-    const result = await sendA2AMessage("http://agent.test/rpc", "ping", {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+    expect(seenUrl).toBe("https://agent.example/custom/subpath/chat");
+    expect(seenHeaders["authorization"]).toBe("Bearer secret-token");
+    expect(seenBody).toEqual({
+      message: "Check deployment",
+      from: "alice",
+      roomId: "room-ops",
+      context: [{ sender: "bob", content: "v2.0 deployed" }],
     });
-    expect(result).toMatchObject({ text: "pong", contextId: "ctx-1", taskId: "task-1" });
-    expect(body?.["method"]).toBe("SendMessage");
-    const params = body?.["params"] as { message: { parts: Array<{ text: string }> } };
-    expect(params.message.parts[0]?.text).toBe("ping");
+    expect(result).toEqual({ reply: "Deployment healthy", taskId: "http-1" });
   });
 
-  it("falls back to message/send when SendMessage is unknown", async () => {
-    let calls = 0;
-    const fetchImpl = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      calls += 1;
-      const request = JSON.parse(String(init?.body)) as { method: string };
-      if (request.method === "SendMessage") {
-        return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32601 } }), {
-          status: 200,
+  it("sends A2A JSON-RPC message/send preserving subpath and falls back to SendMessage on -32601", async () => {
+    const seenMethods: string[] = [];
+    let seenUrl = "";
+
+    const result = await sendHttpOrA2aMessage({
+      url: "https://a2a.example/org/bot-1/rpc",
+      mode: "a2a",
+      message: "Review diff",
+      from: "alice",
+      roomId: "room-dev",
+      lookupFn: publicLookup,
+      fetchImpl: async (input, init) => {
+        seenUrl = String(input);
+        const body = JSON.parse(String(init?.body)) as {
+          id: string;
+          method: string;
+          params: { message: { parts: Array<{ kind: string; text: string }> } };
+        };
+        seenMethods.push(body.method);
+        expect(body.params.message.parts[0]).toEqual({
+          kind: "text",
+          text: "Review diff",
         });
-      }
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          result: { message: { role: "agent", parts: [{ text: "legacy ok" }] } },
-        }),
-        { status: 200 },
-      );
+
+        if (body.method === "message/send") {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32601, message: "Method not found" },
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              kind: "task",
+              id: "a2a-task-7",
+              artifacts: [{ parts: [{ kind: "text", text: "LGTM" }] }],
+            },
+          }),
+          { status: 200 },
+        );
+      },
     });
 
-    const result = await sendA2AMessage("http://agent.test/rpc", "ping", {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    });
-    expect(result.text).toBe("legacy ok");
-    expect(calls).toBe(2);
+    expect(seenUrl).toBe("https://a2a.example/org/bot-1/rpc");
+    expect(seenMethods).toEqual(["message/send", "SendMessage"]);
+    expect(result).toEqual({ reply: "LGTM", taskId: "a2a-task-7" });
   });
 
-  it("throws on json-rpc errors", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "boom" } }),
-        { status: 200 },
-      ),
-    );
+  it("enforces SSRF protection and blocks HTTP redirects", async () => {
     await expect(
-      sendA2AMessage("http://agent.test/rpc", "ping", {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+      sendHttpOrA2aMessage({
+        url: "http://127.0.0.1:9999/a2a",
+        mode: "a2a",
+        message: "hi",
+        from: "alice",
+        fetchImpl: async () => new Response("ok"),
       }),
-    ).rejects.toThrow(/boom/);
+    ).rejects.toThrow(/blocked/i);
+
+    await expect(
+      sendHttpOrA2aMessage({
+        url: "https://agent.example/redirect",
+        mode: "http",
+        message: "hi",
+        from: "alice",
+        lookupFn: publicLookup,
+        fetchImpl: async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: "http://169.254.169.254/latest/meta-data/" },
+          }),
+      }),
+    ).rejects.toThrow(/redirect/i);
   });
 });
