@@ -9,6 +9,7 @@ import {
   extractMentions,
   FriendRecordSchema,
   HANDLE_PATTERN,
+  IceServerConfigSchema,
   InboxItemSchema,
   NodePolicyConfigSchema,
   NodePresenceSchema,
@@ -304,6 +305,19 @@ describe("Zod schemas", () => {
     const serverFrames = [
       { type: "pong" },
       { type: "node.registered", node: sampleNode, relayEnabled: true },
+      {
+        type: "node.registered",
+        node: sampleNode,
+        relayEnabled: false,
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          {
+            urls: ["turn:turn.example.com:3478", "turns:turn.example.com:5349"],
+            username: "agent",
+            credential: "secret",
+          },
+        ],
+      },
       { type: "presence.update", node: sampleNode },
       { type: "room.message", message: sampleRoomMessage },
       {
@@ -345,5 +359,45 @@ describe("Zod schemas", () => {
     expect(() =>
       ServerToClientFrameSchema.parse({ type: "unknown.frame" }),
     ).toThrow();
+  });
+
+  it("validates IceServerConfigSchema and node.registered iceServers", () => {
+    const stunOnly = IceServerConfigSchema.parse({
+      urls: "stun:stun.example.com:3478",
+    });
+    expect(stunOnly).toEqual({ urls: "stun:stun.example.com:3478" });
+
+    const turnWithAuth = IceServerConfigSchema.parse({
+      urls: ["turn:turn1.example.com:3478", "turns:turn2.example.com:5349"],
+      username: "user",
+      credential: "pass",
+    });
+    expect(turnWithAuth.urls).toHaveLength(2);
+    expect(turnWithAuth.username).toBe("user");
+    expect(turnWithAuth.credential).toBe("pass");
+
+    expect(() => IceServerConfigSchema.parse({ urls: 123 })).toThrow();
+    expect(() => IceServerConfigSchema.parse({})).toThrow();
+
+    const withoutIce = ServerToClientFrameSchema.parse({
+      type: "node.registered",
+      node: sampleNode,
+      relayEnabled: true,
+    });
+    expect(withoutIce.type).toBe("node.registered");
+    if (withoutIce.type === "node.registered") {
+      expect(withoutIce.iceServers).toBeUndefined();
+    }
+
+    const withIce = ServerToClientFrameSchema.parse({
+      type: "node.registered",
+      node: sampleNode,
+      relayEnabled: false,
+      iceServers: [stunOnly, turnWithAuth],
+    });
+    expect(withIce.type).toBe("node.registered");
+    if (withIce.type === "node.registered") {
+      expect(withIce.iceServers).toEqual([stunOnly, turnWithAuth]);
+    }
   });
 });

@@ -180,6 +180,13 @@ export const SignalTypeSchema = z.enum([
 ]);
 export type SignalType = z.infer<typeof SignalTypeSchema>;
 
+export const IceServerConfigSchema = z.object({
+  urls: z.union([z.string(), z.array(z.string())]),
+  username: z.string().optional(),
+  credential: z.string().optional(),
+});
+export type IceServerConfig = z.infer<typeof IceServerConfigSchema>;
+
 export const ClientToServerFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("ping"),
@@ -236,6 +243,7 @@ export const ServerToClientFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("node.registered"),
     node: NodePresenceSchema,
     relayEnabled: z.boolean(),
+    iceServers: z.array(IceServerConfigSchema).optional(),
   }),
   z.object({
     type: z.literal("presence.update"),
