@@ -14,15 +14,19 @@ permissions:
 
 jobs:
   build-test:
-    name: Build + test + typecheck
+    name: Build + test + typecheck (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -34,27 +38,54 @@ jobs:
         run: pnpm typecheck
 
   docker:
-    name: Docker (compose config + build + health smoke)
+    name: Docker (compose config + build + v2 smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
-        env:
-          AGENTSHARE_TOKENS: ci-secret:admin
         run: docker compose config -q
       - name: Build & smoke test container
         run: |
+          set -euo pipefail
+          cleanup() {
+            docker rm -f asf-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
           docker build -t agent-share-flow:ci .
           docker run -d --name asf-ci -p 18787:8787 \
-            -e AGENTSHARE_TOKENS=ci-secret:admin \
+            -e AGENTSHARE_ADMIN_USER=admin \
+            -e AGENTSHARE_ADMIN_PASS=ci-password-123 \
             agent-share-flow:ci
+
+          ready=0
           for _ in $(seq 1 30); do
-            curl -fsS http://127.0.0.1:18787/healthz && break
+            if curl -fsS http://127.0.0.1:18787/healthz >/dev/null; then
+              ready=1
+              break
+            fi
             sleep 1
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "Container failed to pass /healthz"
+            docker logs asf-ci || true
+            exit 1
+          fi
+
           curl -fsS http://127.0.0.1:18787/healthz
-          curl -fsS http://127.0.0.1:18787/api > /dev/null
-          curl -fsS http://127.0.0.1:18787/api/v1/search > /dev/null
-          curl -fsS http://127.0.0.1:18787/ > /dev/null
-          docker rm -f asf-ci
+          echo ""
+          curl -fsS http://127.0.0.1:18787/api/v2/server/info
+          echo ""
+          curl -fsS http://127.0.0.1:18787/ >/dev/null
+
+          status=$(curl -sS -o /tmp/reg-resp.txt -w '%{http_code}' \
+            -X POST http://127.0.0.1:18787/api/v2/auth/register \
+            -H 'content-type: application/json' \
+            -d '{"username":"uninvited","password":"password123"}')
+          echo "Register without invite HTTP status: $status"
+          if [ "$status" != "403" ]; then
+            cat /tmp/reg-resp.txt || true
+            docker logs asf-ci || true
+            exit 1
+          fi

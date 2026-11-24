@@ -1,13 +1,8 @@
 {
   "name": "@agentshare/core",
-  "version": "0.2.0",
-  "description": "Agent Pack spec, tarball tooling, share tunnel client, A2A client, and handoff contracts for AgentShareFlow.",
+  "version": "2.0.0",
+  "description": "Shared protocol schemas, Ed25519/X25519+AES-GCM crypto, SSRF guard, P2P fallback transport, and A2A client for AgentShareFlow v2.",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mcocdaa/AgentShareFlow.git",
-    "directory": "packages/core"
-  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,25 +10,19 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
     }
   },
   "files": [
     "dist",
     "README.md"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=22.5.0"
   },
-  "keywords": [
-    "agent",
-    "handoff",
-    "a2a",
-    "agent-pack",
-    "agentshare"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
@@ -41,8 +30,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "fflate": "^0.8.3",
-    "tar": "^7.5.22",
     "zod": "^4.6.7"
   },
   "devDependencies": {

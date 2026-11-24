@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]*.[0-9]*.[0-9]*", "!*-legacy*"]
   workflow_dispatch:
 
 permissions:
@@ -28,25 +28,29 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           EXPECTED="${GITHUB_REF_NAME#v}"
-          for pkg in package.json packages/core/package.json packages/cli/package.json; do
+          for pkg in package.json packages/core/package.json packages/node/package.json; do
             ACTUAL=$(node -p "require('./$pkg').version")
             echo "$pkg version: $ACTUAL (expected: $EXPECTED)"
             test "$ACTUAL" = "$EXPECTED"
           done
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build, test, typecheck, and verify release tarballs
+      - name: Build, test, typecheck, and pack release tarballs
         run: |
           pnpm build
           pnpm test
           pnpm typecheck
-          bash scripts/verify-release.sh --archive dist-tarballs
+          OUT_DIR="$PWD/dist-tarballs"
+          mkdir -p "$OUT_DIR"
+          pnpm --filter @agentshare/core pack --pack-destination "$OUT_DIR"
+          pnpm --filter @agentshare/node pack --pack-destination "$OUT_DIR"
+          ls -la "$OUT_DIR"/*.tgz
       - name: Publish @agentshare/core
         if: startsWith(github.ref, 'refs/tags/v') && env.NODE_AUTH_TOKEN != ''
         run: pnpm --filter @agentshare/core publish --no-git-checks --access public --provenance
-      - name: Publish @agentshare/cli
+      - name: Publish @agentshare/node
         if: startsWith(github.ref, 'refs/tags/v') && env.NODE_AUTH_TOKEN != ''
-        run: pnpm --filter @agentshare/cli publish --no-git-checks --access public --provenance
+        run: pnpm --filter @agentshare/node publish --no-git-checks --access public --provenance
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:

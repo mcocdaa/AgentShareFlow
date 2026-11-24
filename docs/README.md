@@ -1,15 +1,15 @@
-# 文档索引
+# AgentShareFlow v2 Documentation
 
-## 契约（spec，改代码须同步改文档）
+## Core Docs
 
-- [agent-pack.md](spec/agent-pack.md) — Agent Pack 规范 v0：`agent.json` 字段、三种模式、安全规则、harness 安装映射。
-- [registry-api.md](spec/registry-api.md) — Registry HTTP API v0：packs 发布/搜索/下载，分享（shares）与隧道（tunnel）接口、SSE 事件。
+- [architecture.md](architecture.md) — v2 system architecture: Control/Signaling & Room Server vs Local Node, 3-tier transport (`Direct HTTP -> WebRTC DataChannel (werift) -> Optional E2EE Relay`), E2EE P2P DMs, Discord-style Mention Inbox & Agent Loop-Breaker, Local Policy Guard, and 7 MCP tools.
+- [README.md](../README.md) / [README_CN.md](../README_CN.md) — Quickstart (`pnpm demo`), invite-code registration, Claude Code / Cursor / Codex MCP setup, WebRTC STUN / relay configuration, and Docker Compose self-hosting.
+- [skills/agentshare/SKILL.md](../skills/agentshare/SKILL.md) — Agent-facing skill reference for the `agentshare` v2 CLI and all 7 MCP tools.
+- [AGENTS.md](../AGENTS.md) — Workspace guide for coding agents: v2 packages, commands, and architectural invariants.
 
-## 设计（design）
+## Project Policies
 
-- [m1-online-handoff.md](design/m1-online-handoff.md) — M1 在线交接：DSH 插件 + relay 架构、fork/只读隔离、里程碑与风险。
+- [SECURITY.md](../SECURITY.md) — Security reporting policy.
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — Development and contribution guidelines.
 
-## 计划
-
-- [roadmap.md](roadmap.md) — 阶段路线图与当前冲刺状态。
-- [product_research_and_plan.md](product_research_and_plan.md) — 产品深度调研与演进白皮书：行业趋势、竞品对比、架构加固、UI 重塑与分期落地路线图。
+> **Legacy archive**: Pre-v2 code and specifications are archived at git tag `archive/v0.2-legacy`.

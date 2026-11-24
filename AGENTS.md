@@ -1,37 +1,38 @@
-# AgentShareFlow — notes for coding agents
+# AgentShareFlow v2 — notes for coding agents
 
 ## Commands
 
+Requires Node.js >= 22.5.0 (built-in `node:sqlite`) and `pnpm@10.32.1`.
+
 ```bash
 pnpm install
-pnpm build          # topological, core first
-pnpm test           # vitest (core)
-pnpm typecheck      # builds first, then tsc --noEmit per package
-pnpm registry       # registry dev server on :8787
-pnpm web            # web dev server on :5173 (proxies /api -> :8787)
-pnpm cli -- --help  # run CLI from source
-pnpm mock:share     # relay end-to-end smoke without DSH (start registry first)
-pnpm mock:a2a       # mock A2A agent for endpoint-share smoke on :9999
-pnpm dsh:sync       # sync core + dsh-plugin into refs/deepseek-harness
+pnpm build              # topological build across all 4 workspace packages
+pnpm test               # vitest across workspace packages
+pnpm typecheck          # tsc --noEmit per package
+pnpm server             # control/signaling & room server dev on :8787
+pnpm web                # Vite React dev server on :5173 (proxies /api, /healthz, /ws -> :8787)
+pnpm node -- --help     # run agentshare CLI from source
+pnpm demo               # local demo: server (:8787) + #general + @helper-bot
 ```
 
-## Layout
+## Workspace Layout
 
-- `packages/core` owns the Agent Pack spec (zod schema), manifest validation, tarball create/extract, harness skill-directory mapping, the share tunnel protocol/client (`src/share.ts`), and the dependency-free A2A client (`src/a2a.ts`). CLI, registry, web, and the DSH plugin depend on it.
-- `packages/cli` is the `agentshare` binary (commander).
-- `packages/registry` is the HTTP API (Hono + `node:sqlite`) plus the in-memory share hub. Routes are split: `app.ts` composes (and serves `packages/web/dist` when present), `pack-routes.ts` serves packs, `share-routes.ts` serves tunnel + endpoint (A2A) shares, handoff-bearing share pages, outcome submissions, and the A2A facade that exposes tunnel shares as A2A agents. `oidc.ts`/`identity.ts` add optional OIDC sessions via the official `@hono/oidc-auth` middleware. `AGENTSHARE_PUBLIC_URL` drives share links.
-- `packages/web` is a Vite React SPA, hash routing, no router dependency: `App.tsx` shell + pack list, `PackDetail.tsx`, `SharePage.tsx` (`#/share/:id` visitor chat), shared bits in `components.tsx`.
-- `packages/dsh-plugin` is the DeepSeek Harness plugin. It is NOT a pnpm workspace member (DSH deps come from the harness workspace); sync it with `pnpm dsh:sync` into `refs/deepseek-harness/packages/community/`, then run `pnpm install && pnpm run build` inside the clone before `--patch` runs. Its tsconfig is clone-relative on purpose; do not run its tsc from this repo.
-- The clone's `tsconfig.host.json` is edited by `pnpm dsh:sync` (idempotent) to include both synced packages; `refs/` stays untracked.
-- `skills/agentshare/SKILL.md` is the agent-facing front door; keep it in sync with CLI flags.
-- `docs/README.md` indexes docs: `docs/spec/*` are contracts (change with code), `docs/design/*` are design docs, `docs/roadmap.md` tracks the plan.
+- `packages/core` (`@agentshare/core`) owns shared v2 protocol Zod schemas & mention/signing helpers (`src/protocol.ts`, including `IceServerConfigSchema`), Ed25519/X25519 + HKDF-SHA256 + AES-256-GCM E2EE DM crypto (`src/crypto.ts`), DNS/IP SSRF guard (`src/ssrf.ts`), 3-tier fallback transport router (`src/transport.ts`: `Direct HTTP -> WebRTC DataChannel (werift) -> Optional E2EE Relay`), and HTTP/A2A agent adapter client (`src/a2a.ts`). Exposes both `.` (Node) and `./protocol` (100% browser-safe, Zod-only).
+- `packages/server` (`@agentshare/server`, private) is the self-hosted Control/Signaling & Room Server (Hono + `@hono/node-server` + `ws` + `node:sqlite` WAL). Serves `/healthz`, `/api/v2/*`, authenticated WebSocket `/ws`, and built `packages/web/dist`. Advertises WebRTC STUN/ICE servers via `AGENTSHARE_STUN_URLS` (default `stun:stun.l.google.com:19302`) and enforces a 64 KiB cap on signaling payloads. Optional E2EE relay is controlled by `AGENTSHARE_ENABLE_RELAY` (default `false`) and admin `PATCH /api/v2/admin/settings`.
+- `packages/node` (`@agentshare/node`, binary `agentshare`) is the local agent node daemon + CLI + MCP server. Manages `~/.agentshare/` (`identity.json`, `session.json`, `policy.json`, `daemon.json`, `local.db`), Direct P2P HTTP receiver (`POST /p2p/v2/message`), WebRTC DataChannel peer manager (`src/webrtc.ts` via `werift`, with `--no-webrtc` / `--stun <urls>` CLI options), `127.0.0.1`-only Local Control API (`/local/*`), Local Policy Guard (`auto` / `read_only_scoped` / `manual_approval`), adapters (`mcp`, `http`, `a2a`, `cli`), JSON-RPC 2.0 stdio MCP server (7 tools), and `demo-bot`.
+- `packages/web` (`@agentshare/web`, private) is the Vite + React 19 Discord-style Web UI (ZH/EN i18n, invite-code auth, rooms with `@mention` autocomplete and loop-breaker banner, friends & pair codes, admin settings, and optional localhost DM/approval panel with Direct / WebRTC P2P / Relay badges).
+- `scripts/demo.mjs` boots the built `@agentshare/server` and `@agentshare/node` demo stack for `pnpm demo`.
+- `skills/agentshare/SKILL.md` is the agent-facing front door; keep it in sync with `packages/node` CLI commands and MCP tools.
+- `docs/architecture.md` and `docs/README.md` document the v2 architecture and invariants; update alongside protocol or behavior changes.
 
-## Conventions
+## Conventions & Invariants
 
-- ESM + NodeNext everywhere: relative imports need a `.js` extension. The DSH plugin is the exception — it uses `.ts` extensions like the harness sources.
-- The zod schema in `packages/core/src/manifest.ts` is the single source of truth for pack fields.
-- No comments in code unless behavior is non-obvious.
-- Never store secrets in packs, manifests, or share config — secret names only (`secrets: ["GITHUB_TOKEN"]`, `tokenEnv: AGENTSHARE_TOKEN`).
-- Releases are immutable: `(owner, name, version)` conflict returns 409.
-- CLI output is for humans by default and machine-readable with `--json`.
-- Registry ships must keep `refs/` untracked; the DSH clone is a local dev dependency.
+- **ESM + NodeNext everywhere**: relative imports in `packages/core`, `packages/server`, and `packages/node` MUST include `.js` extensions.
+- **Browser-safe Web boundary**: `packages/web` MUST NEVER import `node:*` modules; import shared types and helpers ONLY from `@agentshare/core/protocol`.
+- **Single source of truth**: `packages/core/src/protocol.ts` owns all wire schemas, frame unions, `HANDLE_PATTERN`, and `DEFAULT_MAX_AGENT_HOPS`.
+- **Zero server-side DM persistence**: `packages/server` MUST NEVER add a `dm_messages` table or store 1v1 DM contents. All 1v1 DMs are E2EE and persisted only in each node's local SQLite (`~/.agentshare/local.db`).
+- **Invite-only registration**: `POST /api/v2/auth/register` MUST reject requests without a valid, unexpired invite code (`403`). Session tokens are stored only as `SHA-256` hashes, and `/ws` auth is checked on HTTP `upgrade` before `handleUpgrade` (`401` + socket destroy on failure).
+- **SSRF & redirect protection**: All outbound Direct P2P HTTP and HTTP/A2A requests MUST run `assertSafeExternalUrl` (DNS all-records + private IPv4/IPv6 check) and use `redirect: "manual"`, rejecting 3xx responses.
+- **No shell injection & no committed secrets**: CLI adapters MUST use `shell: false`; never store secrets in manifests, policy files, or git — reference env var names only (`tokenEnv`).
+- **Minimal comments**: no comments in code unless behavior is non-obvious.
+- **Untracked local refs**: keep `refs/` untracked.

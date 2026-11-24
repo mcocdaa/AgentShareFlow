@@ -1,21 +1,66 @@
-FROM node:26-slim
+FROM node:22-slim AS pnpm-base
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 ENV npm_config_registry=$NPM_REGISTRY \
     COREPACK_NPM_REGISTRY=$NPM_REGISTRY
 
 RUN npm install -g corepack@latest \
- && corepack enable
+ && corepack enable \
+ && corepack prepare pnpm@10.32.1 --activate
+
 WORKDIR /app
 
-COPY . .
-RUN pnpm install --frozen-lockfile && pnpm build
+FROM pnpm-base AS builder
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/server/package.json ./packages/server/
+COPY packages/node/package.json ./packages/node/
+COPY packages/web/package.json ./packages/web/
+
+RUN pnpm install --frozen-lockfile
+
+COPY packages ./packages
+
+RUN pnpm build
+
+FROM pnpm-base AS prod-deps
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/server/package.json ./packages/server/
+COPY packages/node/package.json ./packages/node/
+COPY packages/web/package.json ./packages/web/
+
+RUN pnpm install --prod --frozen-lockfile --ignore-scripts --filter @agentshare/server...
+
+FROM node:22-slim AS runtime
+
+WORKDIR /app
+
+RUN mkdir -p /data && chown -R node:node /data
+
+COPY --from=prod-deps /app/package.json ./package.json
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/packages/core/package.json ./packages/core/package.json
+COPY --from=prod-deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=prod-deps /app/packages/server/package.json ./packages/server/package.json
+COPY --from=prod-deps /app/packages/server/node_modules ./packages/server/node_modules
+COPY --from=builder /app/packages/server/dist ./packages/server/dist
+COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
 ENV NODE_ENV=production \
     PORT=8787 \
-    AGENTSHARE_DATA=/data
+    AGENTSHARE_DATA=/data \
+    AGENTSHARE_ENABLE_RELAY=false
 
 EXPOSE 8787
 VOLUME ["/data"]
 
-CMD ["node", "packages/registry/dist/server.js"]
+USER node
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:8787/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+CMD ["node", "packages/server/dist/server.js"]

@@ -1,371 +1,609 @@
-export interface PackSummary {
-  owner: string;
-  name: string;
+import {
+  ServerToClientFrameSchema,
+  type ClientToServerFrame,
+  type DmMessage,
+  type FriendRecord,
+  type IceServerConfig,
+  type InboxItem,
+  type NodePresence,
+  type PairCodeRecord,
+  type RoomMessage,
+  type RoomSummary,
+  type ServerToClientFrame,
+  type TransportMode,
+  type UserProfile,
+  type UserRole,
+} from "@agentshare/core/protocol";
+
+export interface HealthResponse {
+  ok: boolean;
   version: string;
-  title: string;
-  description: string;
-  mode: string;
-  tags: string[];
-  downloads: number;
-  stars: number;
-  createdAt: string;
+  relayEnabled: boolean;
 }
 
-export interface PackDetail extends PackSummary {
-  digest: string;
-  size: number;
-  downloadUrl: string;
-  readmeUrl?: string;
-  readme?: string | null;
-  versions: string[];
-  starred?: boolean;
-  signature?: {
-    publicKey: string;
-    sig?: string;
-    value?: string;
-    algorithm?: string;
-    fingerprint?: string;
-  } | null;
-  manifest: {
-    license?: string;
-    compatibility?: string[];
-    skills?: string[];
-    secrets?: string[];
-    mcp?: { config: string };
-    endpoint?: { type: string; url: string; agentCard?: string };
-    runtime?: { image?: string; dockerfile?: string; protocol?: string };
-    metadata?: Record<string, string>;
-  };
+export interface ServerInfo {
+  version: string;
+  relayEnabled: boolean;
+  needsBootstrap: boolean;
+  maxAgentHops: number;
+  iceServers?: IceServerConfig[];
 }
 
-export interface HandoffEvidence {
-  label: string;
-  kind: "path" | "url" | "transcript" | "note";
-  ref: string;
+export interface InviteRecord {
+  code: string;
+  createdBy?: string | null;
+  role: UserRole;
+  maxUses: number;
+  usedCount: number;
+  expiresAt: number | null;
+  createdAt: number;
 }
 
-export interface ShareHandoff {
+export interface RoomMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: string;
+  joinedAt?: number;
+}
+
+export interface LocalNodeConfig {
+  url: string;
+  token: string;
+}
+
+export interface LocalNodeStatus {
+  nodeId: string;
+  handle: string;
+  directUrl: string | null;
+  online: boolean;
+  relayEnabled: boolean;
+  webrtcEnabled?: boolean;
+  serverUrl: string;
+}
+
+export interface PendingApproval {
   id: string;
-  title: string;
-  goal: string;
-  doneWhen?: string;
-  context: { constraints: string[]; environment: string[]; sources: HandoffEvidence[] };
-  decisions: Array<{ id: string; summary: string; rationale?: string; evidence: HandoffEvidence[] }>;
-  tasks: Array<{
-    id: string;
-    summary: string;
-    status: "in-progress" | "blocked" | "done";
-    howToVerify?: string;
-    notes?: string;
-  }>;
-  outcomes: HandoffEvidence[];
-  authorizations: Array<{
-    name: string;
-    status: "inherited" | "reauthorize" | "unavailable";
-    note?: string;
-  }>;
-  openQuestions: string[];
-}
-
-export interface ShareMeta {
-  id: string;
-  owner: string;
-  title: string;
-  mode?: "tunnel" | "endpoint";
-  project?: string;
-  status: "online" | "offline" | "revoked";
-  url?: string;
-  agent?: { name: string; description?: string; skills?: Array<{ id: string; name: string }> };
-  handoff?: ShareHandoff;
-  hasHandoff?: boolean;
-  createdAt: string;
-  lastSeenAt?: string;
-}
-
-export interface ChatMessage {
-  id: number;
-  sessionId: string;
-  role: "visitor" | "agent" | "system";
+  kind: string;
+  fromHandle: string;
+  fromNodeId: string | null;
+  roomId: string | null;
+  messageId: string;
   content: string;
-  createdAt: string;
+  hopChainId?: string | null;
+  status: string;
+  createdAt: number;
 }
 
-export interface SubmissionInput {
-  summary: string;
-  changes: string[];
-  openQuestions: string[];
-  authorName?: string;
-  sessionId?: string;
+export type WsConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "unauthorized";
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
 }
 
-export interface ShareSubmission {
-  id: number;
-  shareId: string;
-  sessionId?: string;
-  authorName?: string;
-  summary: string;
-  changes: string[];
-  openQuestions: string[];
-  status: "pending" | "accepted" | "rejected";
-  ownerNote?: string;
-  createdAt: string;
-  decidedAt?: string;
-}
+const TOKEN_STORAGE_KEY = "agentshare_token";
+const LOCAL_NODE_STORAGE_KEY = "agentshare_local_node";
 
-export const TOKEN_STORAGE_KEY = "agentshare_token";
-
-export function getStoredToken(): string | null {
+export function loadStoredToken(): string | null {
   try {
-    if (typeof localStorage === "undefined") return null;
-    const tok =
-      localStorage.getItem(TOKEN_STORAGE_KEY) ?? localStorage.getItem("agentshare.token");
-    return tok && tok.trim().length > 0 ? tok.trim() : null;
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY);
   } catch {
     return null;
   }
 }
 
-export function setStoredToken(token: string | null): void {
+export function saveStoredToken(token: string | null): void {
   try {
-    if (typeof localStorage === "undefined") return;
-    if (token && token.trim().length > 0) {
-      const clean = token.trim();
-      localStorage.setItem(TOKEN_STORAGE_KEY, clean);
-      localStorage.setItem("agentshare.token", clean);
+    if (token) {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
     } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-      localStorage.removeItem("agentshare.token");
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
     }
   } catch {
-    // ignore storage errors
+    // Ignore storage restriction
   }
 }
 
-export function authHeaders(): Record<string, string> {
-  const token = getStoredToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function get<T>(pathname: string): Promise<T> {
-  const res = await fetch(pathname, {
-    headers: { ...authHeaders() },
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `HTTP ${res.status}`);
+export function loadLocalNodeConfig(): LocalNodeConfig | null {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_NODE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LocalNodeConfig>;
+    if (typeof parsed.url === "string" && typeof parsed.token === "string") {
+      return { url: parsed.url, token: parsed.token };
+    }
+    return null;
+  } catch {
+    return null;
   }
-  return (await res.json()) as T;
 }
 
-export function searchPacks(query: string): Promise<{ items: PackSummary[] }> {
-  return get(`/api/v1/search?q=${encodeURIComponent(query)}`);
-}
-
-export function getPack(owner: string, name: string): Promise<PackDetail> {
-  return get(`/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
-}
-
-export function getShare(id: string): Promise<ShareMeta> {
-  return get(`/api/v1/shares/${encodeURIComponent(id)}`);
-}
-
-export async function postSubmission(id: string, body: SubmissionInput): Promise<ShareSubmission> {
-  const res = await fetch(`/api/v1/shares/${encodeURIComponent(id)}/submissions`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ spec: "submission/v0", ...body }),
-  });
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
-    throw new Error(payload.details ?? payload.error ?? `HTTP ${res.status}`);
+export function saveLocalNodeConfig(config: LocalNodeConfig | null): void {
+  try {
+    if (config) {
+      window.localStorage.setItem(LOCAL_NODE_STORAGE_KEY, JSON.stringify(config));
+    } else {
+      window.localStorage.removeItem(LOCAL_NODE_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage restriction
   }
-  return (await res.json()) as ShareSubmission;
 }
 
-export async function postShareMessage(
-  id: string,
-  body: { sessionId?: string; content: string; visitorName?: string },
-): Promise<{ sessionId: string; message: ChatMessage }> {
-  const res = await fetch(`/api/v1/shares/${encodeURIComponent(id)}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders() },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error ?? `HTTP ${res.status}`);
-  }
-  return (await res.json()) as { sessionId: string; message: ChatMessage };
-}
-
-export interface PublishResult {
-  ok: boolean;
-  ref: string;
-  digest: string;
-  size: number;
-}
-
-export interface SessionInfo {
-  owner: string;
-  email?: string;
-  name?: string;
-}
-
-export async function getSession(): Promise<SessionInfo | null> {
-  const res = await fetch("/api/v1/me", {
-    headers: { ...authHeaders() },
-  });
-  if (!res.ok) return null;
-  const body = (await res.json().catch(() => null)) as SessionInfo | null;
-  return body !== null && typeof body.owner === "string" ? body : null;
-}
-
-export interface AuthResponse {
-  ok: boolean;
-  owner: string;
-  username: string;
-  token: string;
-}
-
-export async function loginOrRegister(
-  username: string,
-  password: string,
-  mode: "login" | "register",
-): Promise<AuthResponse> {
-  const endpoint = mode === "register" ? "/api/v1/auth/register" : "/api/v1/auth/login";
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error ?? `Authentication failed (HTTP ${res.status})`);
-  }
-  const data = (await res.json()) as AuthResponse;
-  if (data.token) {
-    setStoredToken(data.token);
-  }
-  return data;
-}
-
-export interface OrgInfo {
-  name: string;
-  display_name: string;
-  description: string;
-  created_at: string;
-}
-
-export interface UserOrgMembership {
-  org: OrgInfo;
-  role: "owner" | "admin" | "member" | "viewer";
-}
-
-export interface FederationPeer {
-  id: string;
-  name: string;
-  url: string;
-  status: "active" | "unreachable" | "pending";
-  created_at: string;
-  last_synced_at: string | null;
-}
-
-export function listOrgs(): Promise<{ organizations: UserOrgMembership[] }> {
-  return get("/api/v1/orgs");
-}
-
-export function listFederationPeers(): Promise<{ peers: FederationPeer[] }> {
-  return get("/api/v1/federation/peers");
-}
-
-export async function publishPack(
-  token: string | undefined,
-  manifest: unknown,
-  bytes: Uint8Array,
-  digest: string,
-): Promise<PublishResult> {
-  const form = new FormData();
-  form.set("manifest", JSON.stringify(manifest));
-  form.set("tarball", new Blob([new Uint8Array(bytes)], { type: "application/gzip" }), "pack.tgz");
+async function requestJson<T>(
+  url: string,
+  options: {
+    method?: string;
+    token?: string | null;
+    body?: unknown;
+    signal?: AbortSignal;
+  } = {},
+): Promise<T> {
   const headers: Record<string, string> = {
-    ...authHeaders(),
-    "x-pack-digest": digest,
+    Accept: "application/json",
   };
-  if (token !== undefined && token.length > 0) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch("/api/v1/agents", { method: "POST", headers, body: form });
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string; details?: string };
-    throw new Error(payload.details ?? payload.error ?? `HTTP ${res.status}`);
+  if (options.token) {
+    headers.Authorization = `Bearer ${options.token}`;
   }
-  return (await res.json()) as PublishResult;
-}
-
-export async function toggleStar(
-  owner: string,
-  name: string,
-  starred: boolean,
-): Promise<{ starred: boolean; stars: number }> {
-  const res = await fetch(
-    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/star`,
-    {
-      method: starred ? "DELETE" : "POST",
-      headers: { ...authHeaders() },
-    },
-  );
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error ?? `HTTP ${res.status}`);
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
   }
-  return (await res.json()) as { starred: boolean; stars: number };
+
+  const response = await fetch(url, {
+    method: options.method ?? "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
+  });
+
+  const text = await response.text();
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text };
+    }
+  }
+
+  if (!response.ok) {
+    const obj = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    const message =
+      (typeof obj.error === "string" && obj.error) ||
+      (typeof obj.message === "string" && obj.message) ||
+      `HTTP ${response.status}`;
+    const code = typeof obj.code === "string" ? obj.code : undefined;
+    throw new ApiError(response.status, message, code);
+  }
+
+  return data as T;
 }
 
-export async function fetchPackReadme(
-  owner: string,
-  name: string,
-  version: string,
-): Promise<string | null> {
-  const res = await fetch(
-    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/readme`,
-    {
-      headers: { ...authHeaders() },
-    },
-  );
-  if (!res.ok) return null;
-  const payload = (await res.json().catch(() => ({}))) as { readme?: string | null };
-  return payload.readme ?? null;
-}
+export const serverApi = {
+  health(): Promise<HealthResponse> {
+    return requestJson<HealthResponse>("/healthz");
+  },
 
-export interface PlaygroundResult {
-  ok: boolean;
-  output: unknown;
-  logs: string[];
-  executionTimeMs: number;
-  exitCode: number;
-  sandboxed: boolean;
-  error?: string;
-}
+  serverInfo(): Promise<ServerInfo> {
+    return requestJson<ServerInfo>("/api/v2/server/info");
+  },
 
-export async function runPackPlayground(
-  owner: string,
-  name: string,
-  version: string,
-  input: unknown,
-): Promise<PlaygroundResult> {
-  const res = await fetch(
-    `/api/v1/agents/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}/playground`,
-    {
+  register(input: {
+    username: string;
+    password: string;
+    displayName?: string;
+    inviteCode: string;
+  }): Promise<{ token: string; user: UserProfile }> {
+    return requestJson("/api/v2/auth/register", { method: "POST", body: input });
+  },
+
+  login(input: {
+    username: string;
+    password: string;
+  }): Promise<{ token: string; user: UserProfile }> {
+    return requestJson("/api/v2/auth/login", { method: "POST", body: input });
+  },
+
+  logout(token: string): Promise<{ ok: boolean }> {
+    return requestJson("/api/v2/auth/logout", { method: "POST", token });
+  },
+
+  me(token: string): Promise<{ user: UserProfile }> {
+    return requestJson("/api/v2/me", { token });
+  },
+
+  listInvites(token: string): Promise<{ invites: InviteRecord[] }> {
+    return requestJson("/api/v2/admin/invites", { token });
+  },
+
+  createInvite(
+    token: string,
+    input: { maxUses?: number; expiresInHours?: number; role?: UserRole },
+  ): Promise<{ invite: InviteRecord }> {
+    return requestJson("/api/v2/admin/invites", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(),
-      },
-      body: JSON.stringify({ input }),
-    },
-  );
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error ?? `Playground execution failed (HTTP ${res.status})`);
+      token,
+      body: input,
+    });
+  },
+
+  updateSettings(
+    token: string,
+    input: { enableRelay: boolean },
+  ): Promise<{ relayEnabled: boolean }> {
+    return requestJson("/api/v2/admin/settings", {
+      method: "PATCH",
+      token,
+      body: input,
+    });
+  },
+
+  listFriends(token: string): Promise<{ friends: FriendRecord[] }> {
+    return requestJson("/api/v2/friends", { token });
+  },
+
+  requestFriend(
+    token: string,
+    username: string,
+  ): Promise<{ friend: FriendRecord }> {
+    return requestJson("/api/v2/friends/request", {
+      method: "POST",
+      token,
+      body: { username },
+    });
+  },
+
+  acceptFriend(token: string, id: string): Promise<{ friend: FriendRecord }> {
+    return requestJson(`/api/v2/friends/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      token,
+    });
+  },
+
+  deleteFriend(token: string, id: string): Promise<{ ok: boolean }> {
+    return requestJson(`/api/v2/friends/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      token,
+    });
+  },
+
+  createPairCode(
+    token: string,
+    input: { nodeId?: string; maxUses?: number; expiresInMinutes?: number },
+  ): Promise<{ pairCode: PairCodeRecord }> {
+    return requestJson("/api/v2/pair-codes", {
+      method: "POST",
+      token,
+      body: input,
+    });
+  },
+
+  redeemPairCode(
+    token: string,
+    code: string,
+  ): Promise<{ ok: boolean; creatorUserId: string; nodes: NodePresence[] }> {
+    return requestJson("/api/v2/pair-codes/redeem", {
+      method: "POST",
+      token,
+      body: { code },
+    });
+  },
+
+  listNodes(token: string): Promise<{ nodes: NodePresence[] }> {
+    return requestJson("/api/v2/nodes", { token });
+  },
+
+  listRooms(token: string): Promise<{ rooms: RoomSummary[] }> {
+    return requestJson("/api/v2/rooms", { token });
+  },
+
+  createRoom(
+    token: string,
+    input: { name: string; slug?: string; topic?: string; maxAgentHops?: number },
+  ): Promise<{ room: RoomSummary }> {
+    return requestJson("/api/v2/rooms", {
+      method: "POST",
+      token,
+      body: input,
+    });
+  },
+
+  async listRoomMembers(
+    token: string,
+    roomId: string,
+  ): Promise<{ members: RoomMember[] }> {
+    const raw = await requestJson<{
+      members: Array<Partial<RoomMember> & { id?: string }>;
+    }>(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`, { token });
+    const members: RoomMember[] = (raw.members ?? []).map((m) => ({
+      userId: m.userId ?? m.id ?? "",
+      username: m.username ?? "",
+      displayName: m.displayName ?? m.username ?? "",
+      role: m.role ?? "member",
+      joinedAt: m.joinedAt,
+    }));
+    return { members };
+  },
+
+  addRoomMember(
+    token: string,
+    roomId: string,
+    username: string,
+  ): Promise<{ ok: boolean }> {
+    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`, {
+      method: "POST",
+      token,
+      body: { username },
+    });
+  },
+
+  listRoomMessages(
+    token: string,
+    roomId: string,
+    opts?: { sinceSeq?: number; limit?: number },
+  ): Promise<{ messages: RoomMessage[] }> {
+    const params = new URLSearchParams();
+    if (opts?.sinceSeq !== undefined) params.set("sinceSeq", String(opts.sinceSeq));
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return requestJson(
+      `/api/v2/rooms/${encodeURIComponent(roomId)}/messages${qs ? `?${qs}` : ""}`,
+      { token },
+    );
+  },
+
+  sendRoomMessage(
+    token: string,
+    roomId: string,
+    input: { content: string; resetLoop?: boolean },
+  ): Promise<{ message: RoomMessage }> {
+    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/messages`, {
+      method: "POST",
+      token,
+      body: input,
+    });
+  },
+
+  markRoomRead(token: string, roomId: string, seq: number): Promise<{ ok: boolean }> {
+    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/read`, {
+      method: "POST",
+      token,
+      body: { seq },
+    });
+  },
+
+  listInbox(
+    token: string,
+    opts?: { unreadOnly?: boolean },
+  ): Promise<{ items: InboxItem[] }> {
+    const qs = opts?.unreadOnly ? "?unreadOnly=true" : "";
+    return requestJson(`/api/v2/inbox${qs}`, { token });
+  },
+};
+
+function normalizeBaseUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  const parsed = new URL(trimmed);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Local node URL must start with http:// or https://");
   }
-  return res.json() as Promise<PlaygroundResult>;
+  return trimmed;
 }
 
+export class LocalNodeClient {
+  readonly baseUrl: string;
+  readonly token: string;
+
+  constructor(config: LocalNodeConfig) {
+    this.baseUrl = normalizeBaseUrl(config.url);
+    this.token = config.token.trim();
+  }
+
+  status(signal?: AbortSignal): Promise<LocalNodeStatus> {
+    return requestJson<LocalNodeStatus>(`${this.baseUrl}/local/status`, {
+      token: this.token,
+      signal,
+    });
+  }
+
+  listDms(
+    peerHandle: string,
+    limit = 50,
+    signal?: AbortSignal,
+  ): Promise<{ messages: DmMessage[] }> {
+    const params = new URLSearchParams({
+      peer: peerHandle,
+      limit: String(limit),
+    });
+    return requestJson(`${this.baseUrl}/local/dms?${params.toString()}`, {
+      token: this.token,
+      signal,
+    });
+  }
+
+  sendDm(
+    peerHandle: string,
+    content: string,
+    forceRelay?: boolean,
+  ): Promise<{ message: DmMessage; transport: TransportMode }> {
+    return requestJson(`${this.baseUrl}/local/dms`, {
+      method: "POST",
+      token: this.token,
+      body: { peer: peerHandle, content, forceRelay },
+    });
+  }
+
+  listApprovals(
+    status = "pending",
+    signal?: AbortSignal,
+  ): Promise<{ approvals: PendingApproval[] }> {
+    const params = new URLSearchParams({ status });
+    return requestJson(`${this.baseUrl}/local/approvals?${params.toString()}`, {
+      token: this.token,
+      signal,
+    });
+  }
+
+  approve(id: string): Promise<{ ok: boolean; reply?: string | null }> {
+    return requestJson(
+      `${this.baseUrl}/local/approvals/${encodeURIComponent(id)}/approve`,
+      { method: "POST", token: this.token },
+    );
+  }
+
+  reject(id: string): Promise<{ ok: boolean }> {
+    return requestJson(
+      `${this.baseUrl}/local/approvals/${encodeURIComponent(id)}/reject`,
+      { method: "POST", token: this.token },
+    );
+  }
+}
+
+export interface ServerWsHandlers {
+  onFrame: (frame: ServerToClientFrame) => void;
+  onStateChange: (state: WsConnectionState) => void;
+  onAuthFailure: () => void;
+}
+
+export class ServerWsClient {
+  private readonly token: string;
+  private readonly handlers: ServerWsHandlers;
+  private ws: WebSocket | null = null;
+  private closed = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: number | null = null;
+  private pingTimer: number | null = null;
+  private readonly subscribedRooms = new Set<string>();
+
+  constructor(token: string, handlers: ServerWsHandlers) {
+    this.token = token;
+    this.handlers = handlers;
+  }
+
+  connect(): void {
+    if (this.closed) return;
+    this.clearTimers();
+    this.handlers.onStateChange("connecting");
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(this.token)}`;
+    const socket = new WebSocket(url);
+    this.ws = socket;
+
+    let opened = false;
+
+    socket.addEventListener("open", () => {
+      if (this.closed || this.ws !== socket) return;
+      opened = true;
+      this.reconnectAttempt = 0;
+      this.handlers.onStateChange("connected");
+      for (const roomId of this.subscribedRooms) {
+        this.sendFrame({ type: "room.subscribe", roomId });
+      }
+      this.pingTimer = window.setInterval(() => {
+        this.sendFrame({ type: "ping" });
+      }, 25_000);
+    });
+
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") return;
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      const parsed = ServerToClientFrameSchema.safeParse(parsedJson);
+      if (parsed.success) {
+        this.handlers.onFrame(parsed.data);
+      }
+    });
+
+    socket.addEventListener("close", (event) => {
+      if (this.ws === socket) {
+        this.ws = null;
+      }
+      this.clearTimers();
+      if (this.closed) return;
+
+      // Close code 4001 indicates an invalid/revoked session token; never reconnect.
+      if (event.code === 4001) {
+        this.closed = true;
+        this.handlers.onStateChange("unauthorized");
+        this.handlers.onAuthFailure();
+        return;
+      }
+
+      // HTTP 401 rejected before WS upgrade surfaces as abnormal close (1006) without open.
+      if (!opened && event.code === 1006) {
+        void serverApi.me(this.token).catch((err) => {
+          if (!this.closed && err instanceof ApiError && err.status === 401) {
+            this.closed = true;
+            this.clearTimers();
+            this.handlers.onStateChange("unauthorized");
+            this.handlers.onAuthFailure();
+          }
+        });
+      }
+
+      this.handlers.onStateChange("disconnected");
+      const baseDelay = Math.min(1000 * 2 ** this.reconnectAttempt, 15_000);
+      this.reconnectAttempt += 1;
+      const jitter = Math.floor(Math.random() * 400);
+      this.reconnectTimer = window.setTimeout(() => {
+        this.connect();
+      }, baseDelay + jitter);
+    });
+
+    socket.addEventListener("error", () => {
+      // Browser always fires close after error; let close manage backoff.
+    });
+  }
+
+  subscribeRoom(roomId: string): void {
+    this.subscribedRooms.add(roomId);
+    this.sendFrame({ type: "room.subscribe", roomId });
+  }
+
+  sendFrame(frame: ClientToServerFrame): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(frame));
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    this.clearTimers();
+    if (this.ws) {
+      try {
+        this.ws.close(1000, "client closing");
+      } catch {
+        // Ignore close error
+      }
+      this.ws = null;
+    }
+  }
+
+  private clearTimers(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.pingTimer !== null) {
+      window.clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+}

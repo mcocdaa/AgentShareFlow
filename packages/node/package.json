@@ -1,0 +1,36 @@
+{
+  "name": "@agentshare/node",
+  "version": "2.0.0",
+  "type": "module",
+  "bin": {
+    "agentshare": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agentshare/core": "workspace:*",
+    "commander": "^15.0.0",
+    "werift": "^0.28.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@agentshare/server": "workspace:*",
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

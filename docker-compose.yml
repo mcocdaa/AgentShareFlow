@@ -1,19 +1,23 @@
 services:
-  relay:
+  server:
     build:
       context: .
       args:
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
-    image: agent-share-flow-relay
+    image: agentshareflow-server:2.0.0
     ports:
       - "${AGENTSHARE_BIND:-127.0.0.1}:${AGENTSHARE_PORT:-8787}:8787"
     environment:
-      AGENTSHARE_TOKENS: ${AGENTSHARE_TOKENS:?set token:owner pairs, e.g. "s3cret:alice"}
-      AGENTSHARE_PUBLIC_URL: ${AGENTSHARE_PUBLIC_URL:-http://127.0.0.1:8787}
-      AGENTSHARE_DATA: ${AGENTSHARE_DATA:-/data}
+      - AGENTSHARE_ENABLE_RELAY=${AGENTSHARE_ENABLE_RELAY:-false}
+      - AGENTSHARE_STUN_URLS=${AGENTSHARE_STUN_URLS:-stun:stun.l.google.com:19302}
+      - AGENTSHARE_ADMIN_USER
+      - AGENTSHARE_ADMIN_PASS
+      - AGENTSHARE_BOOTSTRAP_INVITE
+      - AGENTSHARE_DATA=/data
+      - AGENTSHARE_MAX_AGENT_HOPS=${AGENTSHARE_MAX_AGENT_HOPS:-5}
     volumes:
-      - relay-data:/data
+      - agentshare-data:/data
     restart: unless-stopped
 
 volumes:
-  relay-data:
+  agentshare-data:

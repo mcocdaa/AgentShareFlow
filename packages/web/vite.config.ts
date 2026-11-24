@@ -8,6 +8,10 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:8787",
       "/healthz": "http://localhost:8787",
+      "/ws": {
+        target: "http://localhost:8787",
+        ws: true,
+      },
     },
   },
 });
