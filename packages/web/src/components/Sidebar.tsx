@@ -16,6 +16,21 @@ import {
 } from "../api";
 import { useI18n } from "../i18n";
 import { CopyButton } from "./CopyButton";
+import {
+  BrandIcon,
+  GlobeIcon,
+  HashIcon,
+  KeyIcon,
+  LogOutIcon,
+  MoonIcon,
+  PlusIcon,
+  RelayIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
+  SunIcon,
+  UserPlusIcon,
+  getAvatarMeta,
+} from "./Icons";
 import { ModalDialog } from "./ModalDialog";
 
 export type ActiveView =
@@ -338,75 +353,37 @@ export function Sidebar({
         className={mobileOpen ? "sidebar sidebar-open" : "sidebar"}
         aria-label={t("app.name")}
       >
-        <div className="sidebar-header">
-          <div className="user-badge">
-            <span className="avatar-circle" aria-hidden="true">
-              {(user.displayName || user.username).slice(0, 2).toUpperCase()}
+        <div className="sidebar-brand-bar">
+          <div className="sidebar-brand">
+            <span className="brand-mark brand-mark-sm" aria-hidden="true">
+              <BrandIcon size={15} />
             </span>
-            <div className="user-badge-text">
-              <div className="user-badge-name-row">
-                <span className="user-display-name">{user.displayName}</span>
-                {user.role === "admin" ? (
-                  <span className="mini-pill mini-pill-accent">
-                    {t("sidebar.roleAdmin")}
-                  </span>
-                ) : null}
-              </div>
-              <span className="user-handle">@{user.username}</span>
-            </div>
+            <span className="sidebar-brand-name truncate">{t("app.name")}</span>
           </div>
 
-          <div className="sidebar-toolbar">
+          <div className="sidebar-top-actions">
             <button
               type="button"
-              className="ghost-btn compact-btn"
+              className="icon-btn ghost-icon-btn"
               onClick={onToggleTheme}
               aria-label={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
               title={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
             >
-              {theme === "dark" ? t("theme.light") : t("theme.dark")}
+              {theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />}
             </button>
             <button
               type="button"
-              className="ghost-btn compact-btn"
+              className="ghost-btn locale-toggle-btn"
+              data-action="toggle-locale"
+              data-testid="locale-toggle"
               onClick={toggleLocale}
               aria-label={t("lang.toggle")}
+              title={t("lang.toggle")}
             >
-              {t("lang.short")}
-            </button>
-            <button
-              type="button"
-              className="ghost-btn compact-btn danger-text"
-              onClick={onSignOut}
-            >
-              {t("sidebar.signOut")}
+              <GlobeIcon size={14} />
+              <span>{t("lang.short")}</span>
             </button>
           </div>
-        </div>
-
-        <div className="sidebar-status-strip">
-          <span
-            className={
-              relayEnabled
-                ? "status-pill status-pill-warn"
-                : "status-pill status-pill-ok"
-            }
-          >
-            {relayEnabled ? t("sidebar.relayOn") : t("sidebar.relayOff")}
-          </span>
-          <span className={`ws-indicator ws-${wsState}`}>
-            <span className="status-dot" aria-hidden="true" />
-            {wsLabel}
-          </span>
-          {user.role === "admin" ? (
-            <button
-              type="button"
-              className="ghost-btn compact-btn admin-trigger-btn"
-              onClick={() => setAdminOpen(true)}
-            >
-              {t("sidebar.adminSettings")}
-            </button>
-          ) : null}
         </div>
 
         <div className="sidebar-scroll">
@@ -415,13 +392,15 @@ export function Sidebar({
               <h2>{t("sidebar.rooms")}</h2>
               <button
                 type="button"
-                className="ghost-btn compact-btn"
+                className="icon-btn section-icon-btn"
+                aria-label={t("sidebar.newRoom")}
+                title={t("sidebar.newRoom")}
                 onClick={() => {
                   setRoomErr(null);
                   setNewRoomOpen(true);
                 }}
               >
-                + {t("sidebar.newRoom")}
+                <PlusIcon size={14} />
               </button>
             </div>
 
@@ -446,9 +425,7 @@ export function Sidebar({
                         }}
                       >
                         <span className="nav-item-label">
-                          <span className="room-hash" aria-hidden="true">
-                            #
-                          </span>
+                          <HashIcon size={15} className="room-hash-icon" />
                           <span className="truncate">{room.name}</span>
                         </span>
                         <span className="nav-badges">
@@ -486,18 +463,22 @@ export function Sidebar({
               <div className="section-actions">
                 <button
                   type="button"
-                  className="ghost-btn compact-btn"
+                  className="icon-btn section-icon-btn"
+                  aria-label={t("sidebar.addFriend")}
+                  title={t("sidebar.addFriend")}
                   onClick={() => {
                     setFriendErr(null);
                     setFriendMsg(null);
                     setAddFriendOpen(true);
                   }}
                 >
-                  + {t("sidebar.addFriend")}
+                  <UserPlusIcon size={14} />
                 </button>
                 <button
                   type="button"
-                  className="ghost-btn compact-btn"
+                  className="icon-btn section-icon-btn"
+                  aria-label={t("sidebar.pairCode")}
+                  title={t("sidebar.pairCode")}
                   onClick={() => {
                     setPairErr(null);
                     setPairMsg(null);
@@ -505,7 +486,7 @@ export function Sidebar({
                     setPairCodeOpen(true);
                   }}
                 >
-                  {t("sidebar.pairCode")}
+                  <KeyIcon size={14} />
                 </button>
               </div>
             </div>
@@ -553,6 +534,7 @@ export function Sidebar({
                 {sortedNodes.map((node) => {
                   const isActive =
                     activeView?.kind === "dm" && activeView.peerHandle === node.handle;
+                  const nodeAvatar = getAvatarMeta(node.handle);
                   return (
                     <li key={node.nodeId}>
                       <button
@@ -566,15 +548,20 @@ export function Sidebar({
                         }}
                       >
                         <span className="nav-item-label">
-                          <span
-                            className={
-                              node.online ? "status-dot dot-online" : "status-dot dot-offline"
-                            }
-                            title={node.online ? t("sidebar.online") : t("sidebar.offline")}
-                            aria-hidden="true"
-                          />
+                          <span className="nav-avatar-wrap" aria-hidden="true">
+                            <span className={`nav-avatar avatar-tone-${nodeAvatar.tone}`}>
+                              {nodeAvatar.initials}
+                            </span>
+                            <span
+                              className={
+                                node.online
+                                  ? "nav-avatar-dot dot-online"
+                                  : "nav-avatar-dot dot-offline"
+                              }
+                            />
+                          </span>
                           <span className="contact-text">
-                            <span className="truncate">@{node.handle}</span>
+                            <span className="truncate contact-handle">@{node.handle}</span>
                             {node.directUrl ? (
                               <span className="muted-sub">
                                 {t("sidebar.directReady")}
@@ -653,6 +640,86 @@ export function Sidebar({
             ) : null}
           </section>
         </div>
+
+        <footer className="sidebar-footer">
+          <div className="sidebar-conn-bar">
+            <span className={`ws-indicator ws-${wsState}`}>
+              <span className="status-dot" aria-hidden="true" />
+              <span>{wsLabel}</span>
+            </span>
+            {user.role === "admin" ? (
+              <button
+                type="button"
+                className={
+                  relayEnabled
+                    ? "relay-chip relay-chip-warn"
+                    : "relay-chip relay-chip-ok"
+                }
+                onClick={() => setAdminOpen(true)}
+                title={t("sidebar.adminSettings")}
+              >
+                {relayEnabled ? <RelayIcon size={12} /> : <ShieldCheckIcon size={12} />}
+                <span className="truncate">
+                  {relayEnabled ? t("sidebar.relayOn") : t("sidebar.relayOff")}
+                </span>
+              </button>
+            ) : (
+              <span
+                className={
+                  relayEnabled
+                    ? "relay-chip relay-chip-warn"
+                    : "relay-chip relay-chip-ok"
+                }
+              >
+                {relayEnabled ? <RelayIcon size={12} /> : <ShieldCheckIcon size={12} />}
+                <span className="truncate">
+                  {relayEnabled ? t("sidebar.relayOn") : t("sidebar.relayOff")}
+                </span>
+              </span>
+            )}
+          </div>
+
+          <div className="sidebar-user-dock">
+            <div className="user-badge">
+              <span className="avatar-circle" aria-hidden="true">
+                {getAvatarMeta(user.displayName || user.username).initials}
+              </span>
+              <div className="user-badge-text">
+                <div className="user-badge-name-row">
+                  <span className="user-display-name">{user.displayName}</span>
+                  {user.role === "admin" ? (
+                    <span className="mini-pill mini-pill-accent">
+                      {t("sidebar.roleAdmin")}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="user-handle truncate">@{user.username}</span>
+              </div>
+            </div>
+            <div className="sidebar-user-actions">
+              {user.role === "admin" ? (
+                <button
+                  type="button"
+                  className="icon-btn ghost-icon-btn"
+                  onClick={() => setAdminOpen(true)}
+                  aria-label={t("sidebar.adminSettings")}
+                  title={t("sidebar.adminSettings")}
+                >
+                  <SettingsIcon size={15} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="icon-btn ghost-icon-btn danger-hover"
+                onClick={onSignOut}
+                aria-label={t("sidebar.signOut")}
+                title={t("sidebar.signOut")}
+              >
+                <LogOutIcon size={15} />
+              </button>
+            </div>
+          </div>
+        </footer>
       </aside>
 
       {/* Admin Settings Modal */}

@@ -1,5 +1,62 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, type ReactNode } from "react";
 import { useI18n } from "../i18n";
+import { CloseIcon } from "./Icons";
+
+let cachedSupportsDisplayTransition: boolean | undefined;
+
+function canTransitionDisplay(): boolean {
+  if (cachedSupportsDisplayTransition !== undefined) {
+    return cachedSupportsDisplayTransition;
+  }
+  if (
+    typeof window === "undefined" ||
+    !window.CSS?.supports?.("transition-behavior", "allow-discrete") ||
+    !document.body
+  ) {
+    return false;
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText =
+    "transition: display 1s allow-discrete !important; display: block;";
+  document.body.appendChild(probe);
+  window.getComputedStyle(probe).display;
+  probe.style.display = "none";
+  cachedSupportsDisplayTransition =
+    window.getComputedStyle(probe).display === "block";
+  probe.remove();
+  return cachedSupportsDisplayTransition;
+}
+
+function supportsTopLayerExit(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(window.CSS?.supports?.("overlay", "auto")) &&
+    canTransitionDisplay()
+  );
+}
+
+async function closeDialogWithExit(dialog: HTMLDialogElement): Promise<void> {
+  if (!dialog.open) return;
+  if (!supportsTopLayerExit()) {
+    if (dialog.hasAttribute("data-closing")) return;
+    dialog.setAttribute("data-closing", "");
+    const animations =
+      typeof dialog.getAnimations === "function"
+        ? dialog.getAnimations({ subtree: true })
+        : [];
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((r) => window.setTimeout(r, 400)),
+      ]);
+    }
+    if (!dialog.hasAttribute("data-closing")) return;
+    dialog.removeAttribute("data-closing");
+  }
+  if (dialog.open) {
+    dialog.close();
+  }
+}
 
 interface ModalDialogProps {
   open: boolean;
@@ -22,14 +79,22 @@ export function ModalDialog({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
+  const requestClose = useCallback(() => {
+    const dialog = dialogRef.current;
+    if (dialog && dialog.open) {
+      void closeDialogWithExit(dialog);
+    }
+  }, []);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
     if (open && !dialog.open) {
+      dialog.removeAttribute("data-closing");
       dialog.showModal();
     } else if (!open && dialog.open) {
-      dialog.close();
+      void closeDialogWithExit(dialog);
     }
   }, [open]);
 
@@ -38,12 +103,21 @@ export function ModalDialog({
     if (!dialog) return;
 
     const handleClose = () => {
+      dialog.removeAttribute("data-closing");
       dialog.returnValue = "";
       onCloseRef.current();
     };
-    dialog.addEventListener("close", handleClose);
 
-    // Fallback for browsers without native closedby="any" support (e.g. Safari)
+    const handleCancel = (event: Event) => {
+      if (!supportsTopLayerExit()) {
+        event.preventDefault();
+        void closeDialogWithExit(dialog);
+      }
+    };
+
+    dialog.addEventListener("close", handleClose);
+    dialog.addEventListener("cancel", handleCancel);
+
     const hasNativeClosedBy =
       typeof HTMLDialogElement !== "undefined" &&
       "closedBy" in HTMLDialogElement.prototype;
@@ -51,6 +125,7 @@ export function ModalDialog({
     if (hasNativeClosedBy) {
       return () => {
         dialog.removeEventListener("close", handleClose);
+        dialog.removeEventListener("cancel", handleCancel);
       };
     }
 
@@ -70,7 +145,7 @@ export function ModalDialog({
     };
     const handlePointerUp = (e: PointerEvent) => {
       if (pressedOutside && isOutside(e) && dialog.open) {
-        dialog.close();
+        void closeDialogWithExit(dialog);
       }
       pressedOutside = false;
     };
@@ -80,6 +155,7 @@ export function ModalDialog({
 
     return () => {
       dialog.removeEventListener("close", handleClose);
+      dialog.removeEventListener("cancel", handleCancel);
       dialog.removeEventListener("pointerdown", handlePointerDown);
       dialog.removeEventListener("pointerup", handlePointerUp);
     };
@@ -101,9 +177,9 @@ export function ModalDialog({
             type="button"
             className="icon-btn modal-close-btn"
             aria-label={t("modal.close")}
-            onClick={() => dialogRef.current?.close()}
+            onClick={requestClose}
           >
-            <span aria-hidden="true">×</span>
+            <CloseIcon size={16} />
           </button>
         </header>
         <div className="modal-body">{open ? children : null}</div>

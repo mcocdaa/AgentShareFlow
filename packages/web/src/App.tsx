@@ -22,6 +22,7 @@ import {
 } from "./api";
 import { AuthView } from "./components/AuthView";
 import { DmPanel } from "./components/DmPanel";
+import { BrandIcon, CloseIcon, MenuIcon } from "./components/Icons";
 import {
   RoomChat,
   type LoopBrokenState,
@@ -516,8 +517,8 @@ export function App() {
     return (
       <main className="boot-screen">
         <div className="boot-card">
-          <span className="brand-mark" aria-hidden="true">
-            AS
+          <span className="brand-mark brand-mark-lg" aria-hidden="true">
+            <BrandIcon size={24} />
           </span>
           <p>{t("app.loading")}</p>
         </div>
@@ -592,16 +593,16 @@ export function App() {
             <div className="welcome-mobile-bar">
               <button
                 type="button"
-                className="icon-btn mobile-menu-btn"
+                className="icon-btn ghost-icon-btn mobile-menu-btn"
                 aria-label={t("app.openMenu")}
                 onClick={() => setMobileSidebarOpen(true)}
               >
-                <span aria-hidden="true">☰</span>
+                <MenuIcon size={18} />
               </button>
             </div>
             <div className="welcome-card">
               <span className="brand-mark brand-mark-lg" aria-hidden="true">
-                AS
+                <BrandIcon size={24} />
               </span>
               <h1>{t("app.welcomeTitle")}</h1>
               <p>{t("app.welcomeSubtitle")}</p>
@@ -622,13 +623,13 @@ export function App() {
               <span>{toast.text}</span>
               <button
                 type="button"
-                className="icon-btn toast-close"
+                className="icon-btn ghost-icon-btn toast-close"
                 aria-label={t("app.dismiss")}
                 onClick={() =>
                   setToasts((prev) => prev.filter((item) => item.id !== toast.id))
                 }
               >
-                ×
+                <CloseIcon size={14} />
               </button>
             </div>
           ))}
