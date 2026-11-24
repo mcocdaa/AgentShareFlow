@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { AlertCircleIcon, CheckIcon, CopyIcon } from "./Icons";
 
 let lastAnnouncedCopyStatus = "";
 
@@ -98,8 +99,14 @@ export function CopyButton({
         data-failed={state === "failed" ? "" : undefined}
         onClick={handleClick}
       >
-        <span aria-hidden="true">
-          {state === "copied" ? "✓" : state === "failed" ? "!" : "⧉"}
+        <span className="copy-icon" aria-hidden="true">
+          {state === "copied" ? (
+            <CheckIcon size={13} />
+          ) : state === "failed" ? (
+            <AlertCircleIcon size={13} />
+          ) : (
+            <CopyIcon size={13} />
+          )}
         </span>
         {label ? <span>{label}</span> : null}
       </button>

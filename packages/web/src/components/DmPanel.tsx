@@ -21,6 +21,15 @@ import {
   type PendingApproval,
 } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
+import {
+  ArrowLeftRightIcon,
+  MenuIcon,
+  RelayIcon,
+  SendIcon,
+  ShieldCheckIcon,
+  ZapIcon,
+  getAvatarMeta,
+} from "./Icons";
 import { MarkdownView } from "./MarkdownView";
 
 export interface TransportBadgeMeta {
@@ -78,6 +87,12 @@ function formatTime(ts: number, locale: string): string {
   } catch {
     return new Date(ts).toLocaleTimeString();
   }
+}
+
+function TransportSvg({ mode, size = 12 }: { mode: TransportMode; size?: number }) {
+  if (mode === "webrtc") return <ArrowLeftRightIcon size={size} />;
+  if (mode === "relay") return <RelayIcon size={size} />;
+  return <ZapIcon size={size} />;
 }
 
 export function DmPanel({
@@ -329,14 +344,14 @@ export function DmPanel({
         <div className="pane-header-left">
           <button
             type="button"
-            className="icon-btn mobile-menu-btn"
+            className="icon-btn ghost-icon-btn mobile-menu-btn"
             aria-label={t("app.openMenu")}
             onClick={onOpenMobileSidebar}
           >
-            <span aria-hidden="true">☰</span>
+            <MenuIcon size={18} />
           </button>
           <div className="pane-title-group">
-            <div className="pane-title-row">
+            <div className="pane-title-inline">
               <span
                 className={
                   peer.online ? "status-dot dot-online" : "status-dot dot-offline"
@@ -347,13 +362,14 @@ export function DmPanel({
               <span className={`kind-pill kind-${peer.kind}`}>
                 {peer.kind.toUpperCase()}
               </span>
+              <span className="pane-title-sep" aria-hidden="true" />
+              <p className="pane-subtitle">
+                {peer.displayName} ·{" "}
+                {peer.directUrl
+                  ? `${t("dm.directUrlActive")} (${peer.directUrl})`
+                  : t("dm.directUrlNone")}
+              </p>
             </div>
-            <p className="pane-subtitle">
-              {peer.displayName} ·{" "}
-              {peer.directUrl
-                ? `${t("dm.directUrlActive")} (${peer.directUrl})`
-                : t("dm.directUrlNone")}
-            </p>
           </div>
         </div>
 
@@ -362,180 +378,185 @@ export function DmPanel({
             className={headerTransport.pillClass}
             data-transport={headerTransport.mode}
           >
-            <span className="transport-glyph" aria-hidden="true">
-              {headerTransport.indicator}
-            </span>
-            {t(headerTransport.labelKey)}
+            <TransportSvg mode={headerTransport.mode} size={12} />
+            <span>{t(headerTransport.labelKey)}</span>
           </span>
         </div>
       </header>
 
       <div className="dm-top-banners">
-        <div className="privacy-banner" role="note">
-          <strong>{t("dm.privacyTitle")}:</strong> {t("dm.privacyBody")}
-        </div>
-
-        <div className="local-node-bar">
-          <div className="local-node-summary">
-            <div className="local-node-status">
-              <span
-                className={
-                  localStatus
-                    ? "status-dot dot-online"
-                    : "status-dot dot-offline"
-                }
-                aria-hidden="true"
-              />
-              <span className="local-node-status-text">
-                <strong>{t("dm.localNodeTitle")}:</strong>{" "}
-                {localStatus
-                  ? t("dm.localNodeConnected", { handle: localStatus.handle })
-                  : t("dm.localNodeDisconnected")}
-              </span>
-              {localStatus ? (
-                <span
-                  className={
-                    localWebrtcEnabled
-                      ? "mini-pill mini-pill-webrtc local-webrtc-pill"
-                      : "mini-pill local-webrtc-pill"
-                  }
-                  data-webrtc={localWebrtcEnabled ? "on" : "off"}
-                >
-                  <span className="transport-glyph" aria-hidden="true">
-                    {localWebrtcEnabled ? "⇄" : "○"}
-                  </span>
-                  {localWebrtcEnabled
-                    ? t("dm.localNodeWebrtcOn")
-                    : t("dm.localNodeWebrtcOff")}
-                </span>
-              ) : null}
-            </div>
-            <div className="local-node-actions">
-              <button
-                type="button"
-                className="ghost-btn compact-btn"
-                aria-expanded={showConfigForm}
-                aria-controls="local-node-config-form"
-                onClick={() => setShowConfigForm((v) => !v)}
-              >
-                {t("dm.localNodeConfigure")}
-              </button>
-              {client ? (
-                <button
-                  type="button"
-                  className="ghost-btn compact-btn danger-text"
-                  onClick={handleDisconnect}
-                >
-                  {t("dm.localNodeDisconnect")}
-                </button>
-              ) : null}
-            </div>
+        <div className="dm-top-inner">
+          <div className="privacy-banner" role="note">
+            <ShieldCheckIcon size={15} className="privacy-banner-icon" />
+            <span>
+              <strong>{t("dm.privacyTitle")}:</strong> {t("dm.privacyBody")}
+            </span>
           </div>
 
-          {showConfigForm ? (
-            <form
-              id="local-node-config-form"
-              className="local-node-form"
-              onSubmit={handleConnect}
-            >
-              <p id="local-node-setup-hint" className="field-hint">
-                {t("dm.localNodeSetupHint")}
-              </p>
-              <div className="local-node-inputs">
-                <div className="field">
-                  <label htmlFor="local-node-url">{t("dm.localNodeUrl")}</label>
-                  <input
-                    id="local-node-url"
-                    type="url"
-                    required
-                    spellCheck={false}
-                    aria-describedby="local-node-setup-hint"
-                    placeholder={t("dm.localNodeUrlPlaceholder")}
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="local-node-token">{t("dm.localNodeToken")}</label>
-                  <input
-                    id="local-node-token"
-                    type="password"
-                    required
-                    autoComplete="off"
-                    placeholder={t("dm.localNodeTokenPlaceholder")}
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="primary-btn"
-                  disabled={connecting}
-                >
-                  {connecting
-                    ? t("dm.localNodeConnecting")
-                    : t("dm.localNodeConnect")}
-                </button>
+          <div className="local-node-bar">
+            <div className="local-node-summary">
+              <div className="local-node-status">
+                <span
+                  className={
+                    localStatus
+                      ? "status-dot dot-online"
+                      : "status-dot dot-offline"
+                  }
+                  aria-hidden="true"
+                />
+                <span className="local-node-status-text">
+                  <strong>{t("dm.localNodeTitle")}:</strong>{" "}
+                  {localStatus
+                    ? t("dm.localNodeConnected", { handle: localStatus.handle })
+                    : t("dm.localNodeDisconnected")}
+                </span>
+                {localStatus ? (
+                  <span
+                    className={
+                      localWebrtcEnabled
+                        ? "mini-pill mini-pill-webrtc local-webrtc-pill"
+                        : "mini-pill local-webrtc-pill"
+                    }
+                    data-webrtc={localWebrtcEnabled ? "on" : "off"}
+                  >
+                    <ArrowLeftRightIcon size={11} />
+                    <span>
+                      {localWebrtcEnabled
+                        ? t("dm.localNodeWebrtcOn")
+                        : t("dm.localNodeWebrtcOff")}
+                    </span>
+                  </span>
+                ) : null}
               </div>
-            </form>
-          ) : null}
-
-          {connectionError ? (
-            <div className="banner banner-error" role="alert">
-              {connectionError}
+              <div className="local-node-actions">
+                <button
+                  type="button"
+                  className="ghost-btn compact-btn"
+                  aria-expanded={showConfigForm}
+                  aria-controls="local-node-config-form"
+                  onClick={() => setShowConfigForm((v) => !v)}
+                >
+                  {t("dm.localNodeConfigure")}
+                </button>
+                {client ? (
+                  <button
+                    type="button"
+                    className="ghost-btn compact-btn danger-text"
+                    onClick={handleDisconnect}
+                  >
+                    {t("dm.localNodeDisconnect")}
+                  </button>
+                ) : null}
+              </div>
             </div>
-          ) : null}
+
+            {showConfigForm ? (
+              <form
+                id="local-node-config-form"
+                className="local-node-form"
+                onSubmit={handleConnect}
+              >
+                <p id="local-node-setup-hint" className="field-hint">
+                  {t("dm.localNodeSetupHint")}
+                </p>
+                <div className="local-node-inputs">
+                  <div className="field">
+                    <label htmlFor="local-node-url">{t("dm.localNodeUrl")}</label>
+                    <input
+                      id="local-node-url"
+                      type="url"
+                      required
+                      spellCheck={false}
+                      aria-describedby="local-node-setup-hint"
+                      placeholder={t("dm.localNodeUrlPlaceholder")}
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="local-node-token">{t("dm.localNodeToken")}</label>
+                    <input
+                      id="local-node-token"
+                      type="password"
+                      required
+                      autoComplete="off"
+                      placeholder={t("dm.localNodeTokenPlaceholder")}
+                      value={tokenInput}
+                      onChange={(e) => setTokenInput(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="primary-btn"
+                    disabled={connecting}
+                  >
+                    {connecting
+                      ? t("dm.localNodeConnecting")
+                      : t("dm.localNodeConnect")}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+
+            {connectionError ? (
+              <div className="banner banner-error" role="alert">
+                {connectionError}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
       {approvals.length > 0 ? (
         <section className="approvals-panel" aria-label={t("dm.approvalsHeading", { count: approvals.length })}>
-          <h2 className="approvals-heading">
-            {t("dm.approvalsHeading", { count: approvals.length })}
-          </h2>
-          {approvalNotice ? (
-            <div className="banner banner-ok" role="status">
-              {approvalNotice}
-            </div>
-          ) : null}
-          <ul className="approval-list">
-            {approvals.map((item) => (
-              <li key={item.id} className="approval-card">
-                <div className="approval-meta">
-                  <strong>{t("dm.approvalFrom", { handle: item.fromHandle })}</strong>
-                  <span className="mini-pill">{item.kind}</span>
-                  <time className="msg-time">
-                    {formatTime(item.createdAt, locale)}
-                  </time>
-                </div>
-                <div className="approval-content">
-                  <MarkdownView content={item.content} />
-                </div>
-                <div className="approval-actions">
-                  <button
-                    type="button"
-                    className="primary-btn compact-btn"
-                    disabled={approvalBusyId === item.id}
-                    onClick={() => void handleApprove(item.id)}
-                  >
-                    {approvalBusyId === item.id
-                      ? t("dm.approving")
-                      : t("dm.approve")}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn compact-btn danger-text"
-                    disabled={approvalBusyId === item.id}
-                    onClick={() => void handleReject(item.id)}
-                  >
-                    {approvalBusyId === item.id
-                      ? t("dm.rejecting")
-                      : t("dm.reject")}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="dm-top-inner">
+            <h2 className="approvals-heading">
+              {t("dm.approvalsHeading", { count: approvals.length })}
+            </h2>
+            {approvalNotice ? (
+              <div className="banner banner-ok" role="status">
+                {approvalNotice}
+              </div>
+            ) : null}
+            <ul className="approval-list">
+              {approvals.map((item) => (
+                <li key={item.id} className="approval-card">
+                  <div className="approval-meta">
+                    <strong>{t("dm.approvalFrom", { handle: item.fromHandle })}</strong>
+                    <span className="mini-pill">{item.kind}</span>
+                    <time className="msg-time">
+                      {formatTime(item.createdAt, locale)}
+                    </time>
+                  </div>
+                  <div className="approval-content">
+                    <MarkdownView content={item.content} />
+                  </div>
+                  <div className="approval-actions">
+                    <button
+                      type="button"
+                      className="primary-btn compact-btn"
+                      disabled={approvalBusyId === item.id}
+                      onClick={() => void handleApprove(item.id)}
+                    >
+                      {approvalBusyId === item.id
+                        ? t("dm.approving")
+                        : t("dm.approve")}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn compact-btn danger-text"
+                      disabled={approvalBusyId === item.id}
+                      onClick={() => void handleReject(item.id)}
+                    >
+                      {approvalBusyId === item.id
+                        ? t("dm.rejecting")
+                        : t("dm.reject")}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
       ) : null}
 
@@ -551,112 +572,117 @@ export function DmPanel({
         role="log"
         aria-live="polite"
       >
-        {!localStatus ? (
-          <div className="stream-empty">{t("dm.localNodeSetupHint")}</div>
-        ) : messages.length === 0 ? (
-          <div className="stream-empty">
-            {t("dm.empty", { handle: peer.handle })}
-          </div>
-        ) : (
-          messages.map((msg) => {
-            const isOut = msg.direction === "out";
-            const msgTransport = transportBadgeMeta(msg.transport);
-            return (
-              <article
-                key={msg.id}
-                className={isOut ? "msg-row msg-row-out" : "msg-row"}
-              >
-                <span
-                  className={
-                    isOut ? "msg-avatar msg-avatar-human" : "msg-avatar msg-avatar-agent"
-                  }
-                  aria-hidden="true"
+        <div className="stream-inner">
+          {!localStatus ? (
+            <div className="stream-empty">
+              {showConfigForm ? t("dm.localNodeDisconnected") : t("dm.localNodeSetupHint")}
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="stream-empty">
+              {t("dm.empty", { handle: peer.handle })}
+            </div>
+          ) : (
+            messages.map((msg) => {
+              const isOut = msg.direction === "out";
+              const msgTransport = transportBadgeMeta(msg.transport);
+              const senderHandle = isOut ? localStatus.handle : msg.peerHandle;
+              const avatar = getAvatarMeta(senderHandle);
+              return (
+                <article
+                  key={msg.id}
+                  className={isOut ? "msg-row msg-row-out" : "msg-row"}
                 >
-                  {(isOut ? localStatus.handle : msg.peerHandle)
-                    .slice(0, 2)
-                    .toUpperCase()}
-                </span>
-                <div className="msg-body">
-                  <div className="msg-meta">
-                    <span className="msg-sender">
-                      {isOut ? `${t("dm.you")} (@${localStatus.handle})` : `@${msg.peerHandle}`}
-                    </span>
-                    <span
-                      className={msgTransport.miniPillClass}
-                      data-transport={msgTransport.mode}
-                    >
-                      <span className="transport-glyph" aria-hidden="true">
-                        {msgTransport.indicator}
+                  <span
+                    className={`msg-avatar ${isOut ? "msg-avatar-human" : "msg-avatar-agent"} avatar-tone-${avatar.tone}`}
+                    aria-hidden="true"
+                  >
+                    {avatar.initials}
+                  </span>
+                  <div className="msg-body">
+                    <div className="msg-meta">
+                      <span className="msg-sender">
+                        {isOut ? `${t("dm.you")} (@${localStatus.handle})` : `@${msg.peerHandle}`}
                       </span>
-                      {t(msgTransport.labelKey)}
-                    </span>
-                    {msg.encrypted ? (
-                      <span className="mini-pill">{t("dm.encryptedBadge")}</span>
-                    ) : null}
-                    <span className={`mini-pill dm-status-${msg.status}`}>
-                      {dmStatusLabel(msg.status)}
-                    </span>
-                    <time
-                      className="msg-time"
-                      dateTime={new Date(msg.createdAt).toISOString()}
-                    >
-                      {formatTime(msg.createdAt, locale)}
-                    </time>
+                      <span
+                        className={msgTransport.miniPillClass}
+                        data-transport={msgTransport.mode}
+                      >
+                        <TransportSvg mode={msgTransport.mode} size={11} />
+                        <span>{t(msgTransport.labelKey)}</span>
+                      </span>
+                      {msg.encrypted ? (
+                        <span className="mini-pill">{t("dm.encryptedBadge")}</span>
+                      ) : null}
+                      <span className={`mini-pill dm-status-${msg.status}`}>
+                        {dmStatusLabel(msg.status)}
+                      </span>
+                      <time
+                        className="msg-time"
+                        dateTime={new Date(msg.createdAt).toISOString()}
+                      >
+                        {formatTime(msg.createdAt, locale)}
+                      </time>
+                    </div>
+                    <div className="msg-content">
+                      <MarkdownView content={msg.content} />
+                    </div>
                   </div>
-                  <div className="msg-content">
-                    <MarkdownView content={msg.content} />
-                  </div>
-                </div>
-              </article>
-            );
-          })
-        )}
+                </article>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {sendError ? (
-        <div className="composer-error banner banner-error" role="alert">
-          {sendError}
+        <div className="composer-error-wrap">
+          <div className="composer-error banner banner-error" role="alert">
+            {sendError}
+          </div>
         </div>
       ) : null}
 
       <div className="composer-shell">
-        <div className="dm-composer-options">
-          <label className="toggle-row compact-toggle">
-            <input
-              type="checkbox"
-              checked={relayEnabled && forceRelay}
-              disabled={!relayEnabled || !localStatus}
-              onChange={(e) => setForceRelay(e.target.checked)}
-            />
-            <span>
-              {t("dm.forceRelay")}
-              {!relayEnabled ? ` (${t("dm.forceRelayDisabledHint")})` : ""}
-            </span>
-          </label>
-        </div>
+        <div className="composer-inner">
+          <div className="dm-composer-options">
+            <label className="toggle-row compact-toggle">
+              <input
+                type="checkbox"
+                checked={relayEnabled && forceRelay}
+                disabled={!relayEnabled || !localStatus}
+                onChange={(e) => setForceRelay(e.target.checked)}
+              />
+              <span>
+                {t("dm.forceRelay")}
+                {!relayEnabled ? ` (${t("dm.forceRelayDisabledHint")})` : ""}
+              </span>
+            </label>
+          </div>
 
-        <form ref={formRef} className="composer-form" onSubmit={handleSendDm}>
-          <label htmlFor="dm-composer" className="visually-hidden">
-            {t("dm.composerLabel", { handle: peer.handle })}
-          </label>
-          <textarea
-            id="dm-composer"
-            className="composer-textarea"
-            rows={1}
-            disabled={!localStatus}
-            placeholder={t("dm.composerPlaceholder", { handle: peer.handle })}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleComposerKeyDown}
-          />
-          <button
-            type="submit"
-            className="primary-btn composer-send-btn"
-            disabled={!localStatus || sending || !draft.trim()}
-          >
-            {sending ? t("dm.sending") : t("dm.send")}
-          </button>
-        </form>
+          <form ref={formRef} className="composer-box" onSubmit={handleSendDm}>
+            <label htmlFor="dm-composer" className="visually-hidden">
+              {t("dm.composerLabel", { handle: peer.handle })}
+            </label>
+            <textarea
+              id="dm-composer"
+              className="composer-textarea"
+              rows={1}
+              disabled={!localStatus}
+              placeholder={t("dm.composerPlaceholder", { handle: peer.handle })}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleComposerKeyDown}
+            />
+            <button
+              type="submit"
+              className="primary-btn composer-send-btn"
+              disabled={!localStatus || sending || !draft.trim()}
+            >
+              <SendIcon size={14} />
+              <span>{sending ? t("dm.sending") : t("dm.send")}</span>
+            </button>
+          </form>
+        </div>
       </div>
     </section>
   );

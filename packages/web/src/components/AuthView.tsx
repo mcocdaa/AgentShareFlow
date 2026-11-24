@@ -8,6 +8,15 @@ import {
   type ServerInfo,
 } from "../api";
 import { useI18n } from "../i18n";
+import {
+  BrandIcon,
+  EyeIcon,
+  EyeOffIcon,
+  GlobeIcon,
+  MoonIcon,
+  ServerIcon,
+  SunIcon,
+} from "./Icons";
 
 interface AuthViewProps {
   serverUrl: string;
@@ -128,7 +137,7 @@ export function AuthView({
         <div className="auth-top-bar">
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true">
-              AS
+              <BrandIcon size={20} />
             </span>
             <div>
               <h1 className="brand-title">{t("app.name")}</h1>
@@ -139,19 +148,23 @@ export function AuthView({
           <div className="auth-controls">
             <button
               type="button"
-              className="ghost-btn"
+              className="icon-btn ghost-icon-btn"
               onClick={onToggleTheme}
               aria-label={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
+              title={theme === "dark" ? t("theme.toLight") : t("theme.toDark")}
             >
-              {theme === "dark" ? t("theme.light") : t("theme.dark")}
+              {theme === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
             </button>
             <button
               type="button"
-              className="ghost-btn"
+              className="ghost-btn locale-toggle-btn"
+              data-action="toggle-locale"
+              data-testid="locale-toggle"
               onClick={toggleLocale}
               aria-label={t("lang.toggle")}
             >
-              {t("lang.short")}
+              <GlobeIcon size={14} />
+              <span>{t("lang.short")}</span>
             </button>
           </div>
         </div>
@@ -165,10 +178,10 @@ export function AuthView({
           }}
         >
           <div className="field">
-            <label htmlFor="auth-server-url">{t("auth.serverUrl")}</label>
-            <span id="auth-server-url-hint" className="field-hint">
-              {t("auth.serverUrlHint")}
-            </span>
+            <label htmlFor="auth-server-url" className="server-url-label">
+              <ServerIcon size={13} />
+              <span>{t("auth.serverUrl")}</span>
+            </label>
             <div className="server-url-row">
               <input
                 id="auth-server-url"
@@ -195,6 +208,9 @@ export function AuthView({
                 {t("auth.serverUrlConnect")}
               </button>
             </div>
+            <span id="auth-server-url-hint" className="field-hint">
+              {t("auth.serverUrlHint")}
+            </span>
             {serverUrlInvalid ? (
               <span className="field-error" role="alert">
                 {t("auth.serverUrlInvalid")}
@@ -316,11 +332,13 @@ export function AuthView({
               />
               <button
                 type="button"
-                className="ghost-btn password-toggle"
+                className="icon-btn password-toggle"
                 onClick={() => setShowPassword((prev) => !prev)}
                 aria-pressed={showPassword}
+                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                title={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
               >
-                {showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
               </button>
             </div>
           </div>

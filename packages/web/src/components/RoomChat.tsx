@@ -17,6 +17,14 @@ import type {
 } from "@agentshare/core/protocol";
 import { ApiError, serverApi, type RoomMember } from "../api";
 import { useI18n } from "../i18n";
+import {
+  ArrowDownIcon,
+  HashIcon,
+  MenuIcon,
+  SendIcon,
+  UsersIcon,
+  getAvatarMeta,
+} from "./Icons";
 import { MarkdownView } from "./MarkdownView";
 import { ModalDialog } from "./ModalDialog";
 
@@ -423,20 +431,25 @@ export function RoomChat({
         <div className="pane-header-left">
           <button
             type="button"
-            className="icon-btn mobile-menu-btn"
+            className="icon-btn ghost-icon-btn mobile-menu-btn"
             aria-label={t("app.openMenu")}
             onClick={onOpenMobileSidebar}
           >
-            <span aria-hidden="true">☰</span>
+            <MenuIcon size={18} />
           </button>
           <div className="pane-title-group">
-            <h1 className="pane-title">
-              <span className="room-hash" aria-hidden="true">
-                #
-              </span>
-              {room.name}
-            </h1>
-            {room.topic ? <p className="pane-subtitle">{room.topic}</p> : null}
+            <div className="pane-title-inline">
+              <h1 className="pane-title">
+                <HashIcon size={17} className="pane-title-icon" />
+                <span>{room.name}</span>
+              </h1>
+              {room.topic ? (
+                <>
+                  <span className="pane-title-sep" aria-hidden="true" />
+                  <p className="pane-subtitle">{room.topic}</p>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -446,10 +459,13 @@ export function RoomChat({
           </span>
           <button
             type="button"
-            className="ghost-btn"
+            className="ghost-btn compact-btn"
             onClick={() => setMembersOpen(true)}
           >
-            {t("room.membersButton")} ({members.length})
+            <UsersIcon size={14} />
+            <span>
+              {t("room.membersButton")} ({members.length})
+            </span>
           </button>
         </div>
       </header>
@@ -462,179 +478,222 @@ export function RoomChat({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {loadingMessages ? (
-          <div className="stream-empty">{t("room.loadingMessages")}</div>
-        ) : messages.length === 0 ? (
-          <div className="stream-empty">{t("room.empty")}</div>
-        ) : (
-          messages.map((msg) => {
-            const mentionsSelf = msg.mentions.some((m) =>
-              selfHandles.has(m.toLowerCase()),
-            );
-            const senderLabel =
-              msg.senderType === "agent"
-                ? t("room.senderAgent")
-                : msg.senderType === "system"
-                  ? t("room.senderSystem")
-                  : t("room.senderHuman");
-            return (
-              <article
-                key={msg.id}
-                className={`msg-row ${mentionsSelf ? "msg-row-mentioned" : ""} ${msg.loopBroken ? "msg-row-loop-broken" : ""}`.trim()}
-              >
-                <span
-                  className={`msg-avatar msg-avatar-${msg.senderType}`}
-                  aria-hidden="true"
+        <div className="stream-inner">
+          {loadingMessages ? (
+            <div className="stream-empty">{t("room.loadingMessages")}</div>
+          ) : messages.length === 0 ? (
+            <div className="stream-empty">{t("room.empty")}</div>
+          ) : (
+            messages.map((msg, idx) => {
+              const prev = idx > 0 ? messages[idx - 1] : null;
+              const isGrouped =
+                Boolean(prev) &&
+                prev!.senderHandle === msg.senderHandle &&
+                prev!.senderType === msg.senderType &&
+                !prev!.loopBroken &&
+                !msg.loopBroken &&
+                msg.createdAt - prev!.createdAt < 300_000;
+              const mentionsDirectUser = msg.mentions.some(
+                (m) => m.toLowerCase() === user.username.toLowerCase(),
+              );
+              const avatar = getAvatarMeta(msg.senderHandle);
+              const senderLabel =
+                msg.senderType === "agent"
+                  ? t("room.senderAgent")
+                  : msg.senderType === "system"
+                    ? t("room.senderSystem")
+                    : t("room.senderHuman");
+              return (
+                <article
+                  key={msg.id}
+                  className={[
+                    "msg-row",
+                    isGrouped ? "msg-row-grouped" : "",
+                    mentionsDirectUser ? "msg-row-mentioned" : "",
+                    msg.loopBroken ? "msg-row-loop-broken" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 >
-                  {msg.senderHandle.slice(0, 2).toUpperCase()}
-                </span>
-                <div className="msg-body">
-                  <div className="msg-meta">
-                    <span className="msg-sender">@{msg.senderHandle}</span>
-                    <span className={`sender-pill sender-pill-${msg.senderType}`}>
-                      {senderLabel}
-                    </span>
-                    {msg.hopCount > 0 ? (
-                      <span className="mini-pill">
-                        {t("room.hopBadge", { count: msg.hopCount })}
-                      </span>
-                    ) : null}
-                    {msg.loopBroken ? (
-                      <span className="mini-pill mini-pill-warn">
-                        {t("room.loopBrokenBadge")}
-                      </span>
-                    ) : null}
+                  {isGrouped ? (
                     <time
-                      className="msg-time"
+                      className="msg-gutter-time"
                       dateTime={new Date(msg.createdAt).toISOString()}
                     >
-                      {formatMessageTime(msg.createdAt, locale)}
+                      {new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(msg.createdAt))}
                     </time>
+                  ) : (
+                    <span
+                      className={`msg-avatar msg-avatar-${msg.senderType} avatar-tone-${avatar.tone}`}
+                      aria-hidden="true"
+                    >
+                      {avatar.initials}
+                    </span>
+                  )}
+                  <div className="msg-body">
+                    {!isGrouped ? (
+                      <div className="msg-meta">
+                        <span className="msg-sender">@{msg.senderHandle}</span>
+                        {msg.senderType !== "human" ? (
+                          <span className={`sender-pill sender-pill-${msg.senderType}`}>
+                            {senderLabel}
+                          </span>
+                        ) : null}
+                        {msg.hopCount > 0 ? (
+                          <span className="msg-hop-meta">
+                            {t("room.hopBadge", { count: msg.hopCount })}
+                          </span>
+                        ) : null}
+                        {msg.loopBroken ? (
+                          <span className="mini-pill mini-pill-warn">
+                            {t("room.loopBrokenBadge")}
+                          </span>
+                        ) : null}
+                        <time
+                          className="msg-time"
+                          dateTime={new Date(msg.createdAt).toISOString()}
+                        >
+                          {formatMessageTime(msg.createdAt, locale)}
+                        </time>
+                      </div>
+                    ) : null}
+                    <div className="msg-content">
+                      <MarkdownView
+                        content={msg.content}
+                        highlightHandles={selfHandles}
+                      />
+                    </div>
                   </div>
-                  <div className="msg-content">
-                    <MarkdownView
-                      content={msg.content}
-                      highlightHandles={selfHandles}
-                    />
-                  </div>
-                </div>
-              </article>
-            );
-          })
-        )}
+                </article>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {showJumpButton ? (
         <div className="jump-bar">
           <button type="button" className="jump-btn" onClick={scrollToLatest}>
-            ↓ {t("room.jumpToLatest")}
+            <ArrowDownIcon size={13} />
+            <span>{t("room.jumpToLatest")}</span>
           </button>
         </div>
       ) : null}
 
       {isLoopBroken ? (
-        <div className="loop-warning-banner" role="status">
-          <div className="loop-warning-text">
-            <strong>{t("room.loopWarningTitle")}</strong>
-            <p>{t("room.loopWarningBody", { hops: brokenHops })}</p>
+        <div className="loop-warning-wrap">
+          <div className="loop-warning-banner" role="status">
+            <div className="loop-warning-text">
+              <strong>{t("room.loopWarningTitle")}</strong>
+              <p>{t("room.loopWarningBody", { hops: brokenHops })}</p>
+            </div>
+            <button
+              type="button"
+              className="primary-btn"
+              disabled={sending}
+              onClick={() =>
+                void submitMessage(t("room.loopContinueMessage"), true)
+              }
+            >
+              {t("room.loopContinue")}
+            </button>
           </div>
-          <button
-            type="button"
-            className="primary-btn"
-            disabled={sending}
-            onClick={() =>
-              void submitMessage(t("room.loopContinueMessage"), true)
-            }
-          >
-            {t("room.loopContinue")}
-          </button>
         </div>
       ) : null}
 
       {sendError ? (
-        <div className="composer-error banner banner-error" role="alert">
-          {sendError}
+        <div className="composer-error-wrap">
+          <div className="composer-error banner banner-error" role="alert">
+            {sendError}
+          </div>
         </div>
       ) : null}
 
       <div className="composer-shell">
-        {filteredMentions.length > 0 && activeMention ? (
-          <ul
-            className="mention-popover"
-            role="listbox"
-            aria-label={t("room.mentionListLabel")}
-          >
-            {filteredMentions.map((candidate, idx) => (
-              <li
-                key={candidate.handle}
-                role="option"
-                aria-selected={idx === mentionIndex}
-              >
-                <button
-                  type="button"
-                  className={
-                    idx === mentionIndex
-                      ? "mention-option mention-option-active"
-                      : "mention-option"
-                  }
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    applyMention(candidate);
-                  }}
+        <div className="composer-inner">
+          {filteredMentions.length > 0 && activeMention ? (
+            <ul
+              className="mention-popover"
+              role="listbox"
+              aria-label={t("room.mentionListLabel")}
+            >
+              {filteredMentions.map((candidate, idx) => (
+                <li
+                  key={candidate.handle}
+                  role="option"
+                  aria-selected={idx === mentionIndex}
                 >
-                  <span
+                  <button
+                    type="button"
                     className={
-                      candidate.online
-                        ? "status-dot dot-online"
-                        : "status-dot dot-offline"
+                      idx === mentionIndex
+                        ? "mention-option mention-option-active"
+                        : "mention-option"
                     }
-                    aria-hidden="true"
-                  />
-                  <span className="mention-handle">@{candidate.handle}</span>
-                  <span className="mention-name">{candidate.displayName}</span>
-                  <span className={`kind-pill kind-${candidate.kind}`}>
-                    {candidate.kind === "human"
-                      ? t("room.senderHuman")
-                      : candidate.kind.toUpperCase()}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyMention(candidate);
+                    }}
+                  >
+                    <span
+                      className={
+                        candidate.online
+                          ? "status-dot dot-online"
+                          : "status-dot dot-offline"
+                      }
+                      aria-hidden="true"
+                    />
+                    <span className="mention-handle">@{candidate.handle}</span>
+                    <span className="mention-name">{candidate.displayName}</span>
+                    <span className={`kind-pill kind-${candidate.kind}`}>
+                      {candidate.kind === "human"
+                        ? t("room.senderHuman")
+                        : candidate.kind.toUpperCase()}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
-        <form ref={formRef} className="composer-form" onSubmit={handleFormSubmit}>
-          <label htmlFor="room-composer" className="visually-hidden">
-            {t("room.composerLabel", { room: room.name })}
-          </label>
-          <textarea
-            ref={composerRef}
-            id="room-composer"
-            className="composer-textarea"
-            rows={1}
-            placeholder={t("room.composerPlaceholder", { room: room.name })}
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setCursorPos(e.target.selectionStart ?? e.target.value.length);
-              setMentionDismissed(false);
-            }}
-            onClick={(e) => {
-              setCursorPos(e.currentTarget.selectionStart ?? draft.length);
-            }}
-            onKeyUp={(e) => {
-              setCursorPos(e.currentTarget.selectionStart ?? draft.length);
-            }}
-            onKeyDown={handleComposerKeyDown}
-          />
-          <button
-            type="submit"
-            className="primary-btn composer-send-btn"
-            disabled={sending || !draft.trim()}
-          >
-            {sending ? t("room.sending") : t("room.send")}
-          </button>
-        </form>
+          <form ref={formRef} className="composer-box" onSubmit={handleFormSubmit}>
+            <label htmlFor="room-composer" className="visually-hidden">
+              {t("room.composerLabel", { room: room.name })}
+            </label>
+            <textarea
+              ref={composerRef}
+              id="room-composer"
+              className="composer-textarea"
+              rows={1}
+              placeholder={t("room.composerPlaceholder", { room: room.name })}
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setCursorPos(e.target.selectionStart ?? e.target.value.length);
+                setMentionDismissed(false);
+              }}
+              onClick={(e) => {
+                setCursorPos(e.currentTarget.selectionStart ?? draft.length);
+              }}
+              onKeyUp={(e) => {
+                setCursorPos(e.currentTarget.selectionStart ?? draft.length);
+              }}
+              onKeyDown={handleComposerKeyDown}
+            />
+            <button
+              type="submit"
+              className="primary-btn composer-send-btn"
+              disabled={sending || !draft.trim()}
+            >
+              <SendIcon size={14} />
+              <span>{sending ? t("room.sending") : t("room.send")}</span>
+            </button>
+          </form>
+          <p className="composer-hint">{t("room.composerHint")}</p>
+        </div>
       </div>
 
       <ModalDialog
