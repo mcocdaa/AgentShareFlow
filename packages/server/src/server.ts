@@ -1,5 +1,5 @@
 import { DEFAULT_MAX_AGENT_HOPS } from "@agentshare/core";
-import { parseStunUrls, startServer } from "./index.js";
+import { parseCorsOrigins, parseStunUrls, startServer } from "./index.js";
 
 function parsePort(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -26,6 +26,7 @@ const relayEnabled =
     : undefined;
 const maxAgentHops = parseMaxHops(process.env.AGENTSHARE_MAX_AGENT_HOPS);
 const iceServers = parseStunUrls(process.env.AGENTSHARE_STUN_URLS);
+const corsOrigins = parseCorsOrigins(process.env.AGENTSHARE_CORS_ORIGINS);
 
 const server = await startServer({
   port,
@@ -35,6 +36,7 @@ const server = await startServer({
   relayEnabled,
   maxAgentHops,
   iceServers,
+  corsOrigins,
   adminUser: process.env.AGENTSHARE_ADMIN_USER,
   adminPass: process.env.AGENTSHARE_ADMIN_PASS,
   bootstrapInvite: process.env.AGENTSHARE_BOOTSTRAP_INVITE,
@@ -42,7 +44,7 @@ const server = await startServer({
 
 console.log(`[agentshare-server] listening on ${server.url} (ws: ${server.wsUrl})`);
 console.log(
-  `[agentshare-server] relayEnabled=${server.db.getRelayEnabled()} maxAgentHops=${maxAgentHops} iceServers=${iceServers.length}`,
+  `[agentshare-server] relayEnabled=${server.db.getRelayEnabled()} maxAgentHops=${maxAgentHops} iceServers=${iceServers.length} corsOrigins=${corsOrigins.length ? corsOrigins.join(",") : "(disabled)"}`,
 );
 if (server.bootstrapInviteCode) {
   console.log(

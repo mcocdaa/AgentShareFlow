@@ -18,6 +18,7 @@ import {
 } from "../src/config.js";
 import { AgentNodeDaemon } from "../src/daemon.js";
 import { startDemoBotServer } from "../src/demo-bot.js";
+import { createCli } from "../src/index.js";
 import { LocalStore } from "../src/local-store.js";
 
 const tempDirs: string[] = [];
@@ -294,6 +295,264 @@ describe("AgentNodeDaemon WebSocket auth failure guards", () => {
         server.close(() => r());
         server.closeAllConnections?.();
       });
+    }
+  });
+});
+
+describe("AgentNodeDaemon Local Control API CORS", () => {
+  async function startMockSignalingServer(): Promise<{
+    url: string;
+    close: () => Promise<void>;
+  }> {
+    const server = http.createServer((req, res) => {
+      if (req.url === "/api/v2/rooms") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ rooms: [] }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    const wss = new WebSocketServer({ noServer: true });
+    server.on("upgrade", (req, socket, head) => {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on("message", (raw) => {
+          const msg = JSON.parse(raw.toString()) as {
+            type: string;
+            nodeId?: string;
+            handle?: string;
+          };
+          if (msg.type === "node.register") {
+            ws.send(
+              JSON.stringify({
+                type: "node.registered",
+                relayEnabled: false,
+                node: {
+                  nodeId: msg.nodeId,
+                  ownerUserId: "u1",
+                  ownerUsername: "alice",
+                  handle: msg.handle,
+                  displayName: "Test",
+                  kind: "mcp",
+                  description: "",
+                  capabilities: [],
+                  signPublicKey: "k",
+                  kxPublicKey: "x",
+                  directUrl: null,
+                  online: true,
+                  lastSeenAt: Date.now(),
+                },
+              }),
+            );
+          }
+        });
+      });
+    });
+
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const { port } = server.address() as AddressInfo;
+    return {
+      url: `http://127.0.0.1:${port}`,
+      close: async () => {
+        wss.close();
+        await new Promise<void>((r) => {
+          server.close(() => r());
+          server.closeAllConnections?.();
+        });
+      },
+    };
+  }
+
+  it("allows localhost by default, blocks remote origins by default, and allows configured allowedOrigins", async () => {
+    const mockServer = await startMockSignalingServer();
+    const defaultDaemon = new AgentNodeDaemon({
+      homeDir: makeTempDir(),
+      serverUrl: mockServer.url,
+      token: "tok-default",
+      handle: "cors-default-bot",
+      enableWebRtc: false,
+    });
+    const configuredDaemon = new AgentNodeDaemon({
+      homeDir: makeTempDir(),
+      serverUrl: mockServer.url,
+      token: "tok-allowed",
+      handle: "cors-allowed-bot",
+      allowedOrigins: [" http://192.168.0.110:3000/ "],
+      enableWebRtc: false,
+    });
+    const wildcardDaemon = new AgentNodeDaemon({
+      homeDir: makeTempDir(),
+      serverUrl: mockServer.url,
+      token: "tok-wildcard",
+      handle: "cors-wildcard-bot",
+      allowedOrigins: ["*"],
+      enableWebRtc: false,
+    });
+
+    try {
+      await defaultDaemon.start();
+      await configuredDaemon.start();
+      await wildcardDaemon.start();
+
+      // Default daemon allows http://localhost:5173
+      const localPreflight = await fetch(
+        `${defaultDaemon.localControlUrl}/local/status`,
+        {
+          method: "OPTIONS",
+          headers: { origin: "http://localhost:5173" },
+        },
+      );
+      expect(localPreflight.status).toBe(204);
+      expect(localPreflight.headers.get("access-control-allow-origin")).toBe(
+        "http://localhost:5173",
+      );
+      expect(localPreflight.headers.get("access-control-allow-methods")).toBe(
+        "GET, POST, OPTIONS",
+      );
+      expect(localPreflight.headers.get("access-control-allow-headers")).toBe(
+        "Authorization, Content-Type",
+      );
+      expect(localPreflight.headers.get("vary")).toBe("Origin");
+
+      const localStatus = await fetch(
+        `${defaultDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "http://localhost:5173",
+            authorization: `Bearer ${defaultDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(localStatus.status).toBe(200);
+      expect(localStatus.headers.get("access-control-allow-origin")).toBe(
+        "http://localhost:5173",
+      );
+
+      // Bearer auth stays enforced even for allowed origins
+      const localUnauth = await fetch(
+        `${defaultDaemon.localControlUrl}/local/status`,
+        {
+          headers: { origin: "http://localhost:5173" },
+        },
+      );
+      expect(localUnauth.status).toBe(401);
+
+      // Default daemon omits CORS header for remote origin http://192.168.0.110:3000
+      const remoteBlockedPreflight = await fetch(
+        `${defaultDaemon.localControlUrl}/local/status`,
+        {
+          method: "OPTIONS",
+          headers: { origin: "http://192.168.0.110:3000" },
+        },
+      );
+      expect(remoteBlockedPreflight.status).toBe(204);
+      expect(
+        remoteBlockedPreflight.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      const remoteBlockedGet = await fetch(
+        `${defaultDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "http://192.168.0.110:3000",
+            authorization: `Bearer ${defaultDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(remoteBlockedGet.status).toBe(200);
+      expect(
+        remoteBlockedGet.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      // Configured daemon allows http://192.168.0.110:3000 (normalized match) and keeps localhost allowed
+      const remoteAllowedPreflight = await fetch(
+        `${configuredDaemon.localControlUrl}/local/status`,
+        {
+          method: "OPTIONS",
+          headers: { origin: "http://192.168.0.110:3000" },
+        },
+      );
+      expect(remoteAllowedPreflight.status).toBe(204);
+      expect(
+        remoteAllowedPreflight.headers.get("access-control-allow-origin"),
+      ).toBe("http://192.168.0.110:3000");
+      expect(
+        remoteAllowedPreflight.headers.get("access-control-allow-methods"),
+      ).toBe("GET, POST, OPTIONS");
+      expect(
+        remoteAllowedPreflight.headers.get("access-control-allow-headers"),
+      ).toBe("Authorization, Content-Type");
+      expect(remoteAllowedPreflight.headers.get("vary")).toBe("Origin");
+
+      const remoteAllowedGet = await fetch(
+        `${configuredDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "http://192.168.0.110:3000",
+            authorization: `Bearer ${configuredDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(remoteAllowedGet.status).toBe(200);
+      expect(
+        remoteAllowedGet.headers.get("access-control-allow-origin"),
+      ).toBe("http://192.168.0.110:3000");
+
+      const configuredLocalhost = await fetch(
+        `${configuredDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "http://localhost:5173",
+            authorization: `Bearer ${configuredDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(configuredLocalhost.status).toBe(200);
+      expect(
+        configuredLocalhost.headers.get("access-control-allow-origin"),
+      ).toBe("http://localhost:5173");
+
+      const unconfiguredRemote = await fetch(
+        `${configuredDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "http://192.168.0.111:3000",
+            authorization: `Bearer ${configuredDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(unconfiguredRemote.status).toBe(200);
+      expect(
+        unconfiguredRemote.headers.get("access-control-allow-origin"),
+      ).toBeNull();
+
+      // Wildcard allowedOrigins reflects request Origin header with Vary: Origin
+      const wildcardRes = await fetch(
+        `${wildcardDaemon.localControlUrl}/local/status`,
+        {
+          headers: {
+            origin: "https://web.example.com",
+            authorization: `Bearer ${wildcardDaemon.localControlToken}`,
+          },
+        },
+      );
+      expect(wildcardRes.status).toBe(200);
+      expect(wildcardRes.headers.get("access-control-allow-origin")).toBe(
+        "https://web.example.com",
+      );
+      expect(wildcardRes.headers.get("vary")).toBe("Origin");
+
+      // CLI exposes --allowed-origins on `node start`
+      const cli = createCli();
+      const nodeCmd = cli.commands.find((c) => c.name() === "node");
+      const startCmd = nodeCmd?.commands.find((c) => c.name() === "start");
+      const opt = startCmd?.options.find((o) => o.long === "--allowed-origins");
+      expect(opt).toBeDefined();
+    } finally {
+      await defaultDaemon.close();
+      await configuredDaemon.close();
+      await wildcardDaemon.close();
+      await mockServer.close();
     }
   });
 });

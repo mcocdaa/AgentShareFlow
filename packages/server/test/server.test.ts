@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,7 +14,9 @@ import {
   type ServerToClientFrame,
 } from "@agentshare/core";
 import {
+  DEFAULT_CORS_ORIGINS,
   DEFAULT_STUN_URL,
+  parseCorsOrigins,
   parseStunUrls,
   startServer,
   type StartedServer,
@@ -1132,42 +1134,36 @@ describe("@agentshare/server v2", () => {
     expect(await closeCodePromise).toBe(4001);
   });
 
-  it("serves static webDistDir with SPA fallback and boots cleanly via dist/server.js with SIGTERM shutdown", async () => {
+  it("returns JSON 404 for root/static routes (no static frontend hosting) and boots cleanly via dist/server.js with SIGTERM shutdown", async () => {
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), "agentshare-srv-test-"));
     try {
-      const webDir = path.join(tmpDir, "web-dist");
       const dataDir = path.join(tmpDir, "data");
-      writeFileSync(
-        path.join(tmpDir, "secret.txt"),
-        "do-not-serve-outside-root",
+      const srv = await boot();
+
+      const rootRes = await apiJson<{ error: string; code: string }>(srv.url, "/");
+      expect(rootRes.status).toBe(404);
+      expect(rootRes.data.code).toBe("NOT_FOUND");
+
+      const indexRes = await apiJson<{ error: string; code: string }>(
+        srv.url,
+        "/index.html",
       );
-      const { mkdirSync } = await import("node:fs");
-      mkdirSync(webDir, { recursive: true });
-      writeFileSync(
-        path.join(webDir, "index.html"),
-        "<!doctype html><div id='app'>AgentShare Web</div>",
+      expect(indexRes.status).toBe(404);
+      expect(indexRes.data.code).toBe("NOT_FOUND");
+
+      const unknownSpaRes = await apiJson<{ error: string; code: string }>(
+        srv.url,
+        "/rooms/general",
       );
-      writeFileSync(path.join(webDir, "app.js"), "console.log('ok');");
+      expect(unknownSpaRes.status).toBe(404);
+      expect(unknownSpaRes.data.code).toBe("NOT_FOUND");
 
-      const srv = await boot({ webDistDir: webDir });
-      const rootRes = await fetch(`${srv.url}/`);
-      expect(rootRes.status).toBe(200);
-      expect(await rootRes.text()).toContain("AgentShare Web");
-
-      const assetRes = await fetch(`${srv.url}/app.js`);
-      expect(assetRes.status).toBe(200);
-      expect(assetRes.headers.get("content-type")).toContain("javascript");
-      expect(await assetRes.text()).toBe("console.log('ok');");
-
-      const spaFallback = await fetch(`${srv.url}/rooms/general`);
-      expect(spaFallback.status).toBe(200);
-      expect(await spaFallback.text()).toContain("AgentShare Web");
-
-      const traversal = await fetch(`${srv.url}/..%2fsecret.txt`);
-      expect(await traversal.text()).not.toContain("do-not-serve-outside-root");
-
-      const missingApi = await apiJson(srv.url, "/api/v2/does-not-exist");
+      const missingApi = await apiJson<{ error: string; code: string }>(
+        srv.url,
+        "/api/v2/does-not-exist",
+      );
       expect(missingApi.status).toBe(404);
+      expect(missingApi.data.code).toBe("NOT_FOUND");
 
       // CLI dist/server.js smoke with env vars + SIGTERM
       const serverEntry = path.resolve(
@@ -1181,13 +1177,17 @@ describe("@agentshare/server v2", () => {
           HOST: "127.0.0.1",
           AGENTSHARE_DATA: dataDir,
           AGENTSHARE_ENABLE_RELAY: "false",
+          AGENTSHARE_CORS_ORIGINS: "https://ui.example.com/",
           AGENTSHARE_ADMIN_USER: "cliadmin",
           AGENTSHARE_ADMIN_PASS: "clipass1234",
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      const listenUrl = await new Promise<string>((resolve, reject) => {
+      const { listenUrl, stdout } = await new Promise<{
+        listenUrl: string;
+        stdout: string;
+      }>((resolve, reject) => {
         let out = "";
         const timer = setTimeout(
           () => reject(new Error(`Server CLI failed to start: ${out}`)),
@@ -1196,9 +1196,9 @@ describe("@agentshare/server v2", () => {
         child.stdout.on("data", (chunk: Buffer) => {
           out += chunk.toString("utf8");
           const match = /listening on (http:\/\/[^\s]+)/.exec(out);
-          if (match?.[1]) {
+          if (match?.[1] && out.includes("corsOrigins=")) {
             clearTimeout(timer);
-            resolve(match[1]);
+            resolve({ listenUrl: match[1], stdout: out });
           }
         });
         child.once("exit", (code) => {
@@ -1207,13 +1207,25 @@ describe("@agentshare/server v2", () => {
         });
       });
 
-      const cliHealth = await apiJson<{ ok: boolean; relayEnabled: boolean }>(
-        listenUrl,
-        "/healthz",
-      );
+      expect(stdout).toContain("corsOrigins=https://ui.example.com");
+
+      const cliHealth = await fetch(`${listenUrl}/healthz`, {
+        headers: { origin: "https://ui.example.com" },
+      });
       expect(cliHealth.status).toBe(200);
-      expect(cliHealth.data.ok).toBe(true);
-      expect(cliHealth.data.relayEnabled).toBe(false);
+      expect(cliHealth.headers.get("access-control-allow-origin")).toBe(
+        "https://ui.example.com",
+      );
+      const cliHealthJson = (await cliHealth.json()) as {
+        ok: boolean;
+        relayEnabled: boolean;
+      };
+      expect(cliHealthJson.ok).toBe(true);
+      expect(cliHealthJson.relayEnabled).toBe(false);
+
+      const cliRoot = await apiJson<{ code: string }>(listenUrl, "/");
+      expect(cliRoot.status).toBe(404);
+      expect(cliRoot.data.code).toBe("NOT_FOUND");
 
       const exitCode = await new Promise<number | null>((resolve) => {
         child.once("exit", (code) => resolve(code));
@@ -1223,6 +1235,157 @@ describe("@agentshare/server v2", () => {
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("enforces CORS policy (default *, explicit allowlist, disabled []) and handles OPTIONS preflight before auth", async () => {
+    const defaultParsed = parseCorsOrigins(undefined);
+    expect(defaultParsed).toEqual(DEFAULT_CORS_ORIGINS);
+    expect(defaultParsed).toEqual(["*"]);
+    defaultParsed.push("https://mutated.example.com");
+    expect(DEFAULT_CORS_ORIGINS).toEqual(["*"]);
+
+    expect(parseCorsOrigins("")).toEqual([]);
+    expect(parseCorsOrigins("   ")).toEqual([]);
+    expect(parseCorsOrigins("none")).toEqual([]);
+    expect(parseCorsOrigins("NONE")).toEqual([]);
+    expect(parseCorsOrigins(" None ")).toEqual([]);
+    expect(parseCorsOrigins("*")).toEqual(["*"]);
+    expect(
+      parseCorsOrigins("https://web.example.com/, http://192.168.0.110:3000/// , "),
+    ).toEqual(["https://web.example.com", "http://192.168.0.110:3000"]);
+
+    // 1. Default wildcard CORS (*)
+    const wildcardSrv = await boot();
+    const healthDefault = await fetch(`${wildcardSrv.url}/healthz`);
+    expect(healthDefault.status).toBe(200);
+    expect(healthDefault.headers.get("access-control-allow-origin")).toBe("*");
+    expect(healthDefault.headers.get("access-control-allow-methods")).toBe(
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
+    expect(healthDefault.headers.get("access-control-allow-headers")).toBe(
+      "Authorization, Content-Type, Accept",
+    );
+    expect(healthDefault.headers.get("access-control-max-age")).toBe("86400");
+    expect(
+      healthDefault.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const preflightDefault = await fetch(`${wildcardSrv.url}/api/v2/rooms`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://127.0.0.1:3000",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "Authorization, Content-Type",
+      },
+    });
+    expect(preflightDefault.status).toBe(204);
+    expect(preflightDefault.headers.get("access-control-allow-origin")).toBe("*");
+    expect(preflightDefault.headers.get("access-control-allow-methods")).toBe(
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
+    expect(preflightDefault.headers.get("access-control-allow-headers")).toBe(
+      "Authorization, Content-Type, Accept",
+    );
+    expect(preflightDefault.headers.get("access-control-max-age")).toBe("86400");
+    expect(
+      preflightDefault.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const unauthRooms = await fetch(`${wildcardSrv.url}/api/v2/rooms`);
+    expect(unauthRooms.status).toBe(401);
+    expect(unauthRooms.headers.get("access-control-allow-origin")).toBe("*");
+
+    // 2. Explicit allowlist
+    const allowlistSrv = await boot({
+      corsOrigins: ["https://web.example.com/", " http://127.0.0.1:3000 "],
+    });
+
+    const allowedGet = await fetch(`${allowlistSrv.url}/healthz`, {
+      headers: { origin: "https://web.example.com" },
+    });
+    expect(allowedGet.status).toBe(200);
+    expect(allowedGet.headers.get("access-control-allow-origin")).toBe(
+      "https://web.example.com",
+    );
+    expect(allowedGet.headers.get("vary")).toContain("Origin");
+    expect(allowedGet.headers.get("access-control-allow-methods")).toBe(
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
+    expect(allowedGet.headers.get("access-control-allow-headers")).toBe(
+      "Authorization, Content-Type, Accept",
+    );
+    expect(allowedGet.headers.get("access-control-max-age")).toBe("86400");
+    expect(
+      allowedGet.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const allowedTrailingSlash = await fetch(`${allowlistSrv.url}/healthz`, {
+      headers: { origin: "http://127.0.0.1:3000/" },
+    });
+    expect(allowedTrailingSlash.status).toBe(200);
+    expect(allowedTrailingSlash.headers.get("access-control-allow-origin")).toBe(
+      "http://127.0.0.1:3000/",
+    );
+    expect(allowedTrailingSlash.headers.get("vary")).toContain("Origin");
+
+    const blockedGet = await fetch(`${allowlistSrv.url}/healthz`, {
+      headers: { origin: "https://evil.example.com" },
+    });
+    expect(blockedGet.status).toBe(200);
+    expect(blockedGet.headers.get("access-control-allow-origin")).toBeNull();
+    expect(blockedGet.headers.get("access-control-allow-methods")).toBeNull();
+    expect(
+      blockedGet.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const noOriginGet = await fetch(`${allowlistSrv.url}/healthz`);
+    expect(noOriginGet.status).toBe(200);
+    expect(noOriginGet.headers.get("access-control-allow-origin")).toBeNull();
+
+    const allowedPreflight = await fetch(`${allowlistSrv.url}/api/v2/rooms`, {
+      method: "OPTIONS",
+      headers: { origin: "https://web.example.com" },
+    });
+    expect(allowedPreflight.status).toBe(204);
+    expect(allowedPreflight.headers.get("access-control-allow-origin")).toBe(
+      "https://web.example.com",
+    );
+    expect(allowedPreflight.headers.get("vary")).toContain("Origin");
+    expect(
+      allowedPreflight.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const blockedPreflight = await fetch(`${allowlistSrv.url}/api/v2/rooms`, {
+      method: "OPTIONS",
+      headers: { origin: "https://evil.example.com" },
+    });
+    expect(blockedPreflight.status).toBe(204);
+    expect(
+      blockedPreflight.headers.get("access-control-allow-origin"),
+    ).toBeNull();
+    expect(
+      blockedPreflight.headers.get("access-control-allow-methods"),
+    ).toBeNull();
+
+    // 3. Disabled CORS ([])
+    const disabledSrv = await boot({ corsOrigins: [] });
+    const disabledGet = await fetch(`${disabledSrv.url}/healthz`, {
+      headers: { origin: "http://localhost:5173" },
+    });
+    expect(disabledGet.status).toBe(200);
+    expect(disabledGet.headers.get("access-control-allow-origin")).toBeNull();
+    expect(
+      disabledGet.headers.get("access-control-allow-credentials"),
+    ).toBeNull();
+
+    const disabledPreflight = await fetch(`${disabledSrv.url}/api/v2/rooms`, {
+      method: "OPTIONS",
+      headers: { origin: "http://localhost:5173" },
+    });
+    expect(disabledPreflight.status).toBe(204);
+    expect(
+      disabledPreflight.headers.get("access-control-allow-origin"),
+    ).toBeNull();
   });
 
   it("advertises default, custom, and empty iceServers in /api/v2/server/info, WS node.registered, and CLI AGENTSHARE_STUN_URLS", async () => {

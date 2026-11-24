@@ -52,6 +52,10 @@ const MAX_HTTP_BODY_BYTES = 1_048_576;
 const MAX_SEEN_NONCES = 50_000;
 const LOCAL_ORIGIN_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, "");
+}
+
 export class DaemonHttpError extends Error {
   readonly status: number;
 
@@ -77,6 +81,7 @@ export interface AgentNodeDaemonOptions {
   port?: number;
   advertiseUrl?: string | null;
   localControlPort?: number;
+  allowedOrigins?: string[];
   allowPrivate?: boolean;
   directTimeoutMs?: number;
   enableWebRtc?: boolean;
@@ -198,6 +203,7 @@ export class AgentNodeDaemon {
   private readonly port: number;
   private readonly advertiseUrlOption?: string | null;
   private readonly localControlPort: number;
+  private readonly allowedOrigins: string[];
   private readonly allowPrivate: boolean;
   private readonly directTimeoutMs: number;
   private readonly enableWebRtc: boolean;
@@ -253,6 +259,9 @@ export class AgentNodeDaemon {
     this.port = options.port ?? 0;
     this.advertiseUrlOption = options.advertiseUrl;
     this.localControlPort = options.localControlPort ?? 0;
+    this.allowedOrigins = (options.allowedOrigins ?? [])
+      .map(normalizeOrigin)
+      .filter((origin) => origin.length > 0);
     this.allowPrivate = options.allowPrivate ?? false;
     this.directTimeoutMs = options.directTimeoutMs ?? 5_000;
     this.enableWebRtc = options.enableWebRtc ?? true;
@@ -483,7 +492,13 @@ export class AgentNodeDaemon {
 
   private applyLocalCors(req: IncomingMessage, res: ServerResponse): void {
     const origin = req.headers.origin;
-    if (origin && LOCAL_ORIGIN_PATTERN.test(origin)) {
+    if (!origin) return;
+    const normalized = normalizeOrigin(origin);
+    const allowed =
+      LOCAL_ORIGIN_PATTERN.test(normalized) ||
+      this.allowedOrigins.includes("*") ||
+      this.allowedOrigins.includes(normalized);
+    if (allowed) {
       res.setHeader("access-control-allow-origin", origin);
       res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
       res.setHeader("access-control-allow-headers", "Authorization, Content-Type");
