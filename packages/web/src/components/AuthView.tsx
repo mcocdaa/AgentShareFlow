@@ -1,9 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { HANDLE_PATTERN, type UserProfile } from "@agentshare/core/protocol";
-import { ApiError, serverApi, type ServerInfo } from "../api";
+import {
+  ApiError,
+  saveStoredServerUrl,
+  serverApi,
+  validateServerBaseUrl,
+  type ServerInfo,
+} from "../api";
 import { useI18n } from "../i18n";
 
 interface AuthViewProps {
+  serverUrl: string;
+  onChangeServerUrl: (nextUrl: string) => void;
   serverInfo: ServerInfo | null;
   serverInfoError: boolean;
   notice?: string | null;
@@ -13,6 +21,8 @@ interface AuthViewProps {
 }
 
 export function AuthView({
+  serverUrl,
+  onChangeServerUrl,
   serverInfo,
   serverInfoError,
   notice,
@@ -24,6 +34,8 @@ export function AuthView({
   const [tab, setTab] = useState<"login" | "register">(
     serverInfo?.needsBootstrap ? "register" : "login",
   );
+  const [serverDraft, setServerDraft] = useState(serverUrl);
+  const [serverUrlInvalid, setServerUrlInvalid] = useState(false);
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -33,14 +45,40 @@ export function AuthView({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setServerDraft(serverUrl);
+    setServerUrlInvalid(false);
+  }, [serverUrl]);
+
+  useEffect(() => {
     if (serverInfo?.needsBootstrap) {
       setTab("register");
     }
   }, [serverInfo?.needsBootstrap]);
 
+  const handleConnectServer = () => {
+    const checked = validateServerBaseUrl(serverDraft);
+    if (!checked.ok) {
+      setServerUrlInvalid(true);
+      return;
+    }
+    setServerUrlInvalid(false);
+    setError(null);
+    onChangeServerUrl(checked.url);
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
+
+    const checkedServer = validateServerBaseUrl(serverDraft);
+    if (!checkedServer.ok) {
+      setServerUrlInvalid(true);
+      return;
+    }
+    setServerUrlInvalid(false);
+    if (checkedServer.url !== serverUrl) {
+      saveStoredServerUrl(checkedServer.url || null);
+    }
 
     const trimmedUser = username.trim().toLowerCase();
     if (tab === "register") {
@@ -82,6 +120,8 @@ export function AuthView({
     }
   };
 
+  const activeServerLabel = serverUrl || t("auth.serverUrlSameOrigin");
+
   return (
     <main className="auth-shell">
       <div className="auth-card">
@@ -115,6 +155,53 @@ export function AuthView({
             </button>
           </div>
         </div>
+
+        <form
+          className="server-url-box"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleConnectServer();
+          }}
+        >
+          <div className="field">
+            <label htmlFor="auth-server-url">{t("auth.serverUrl")}</label>
+            <span id="auth-server-url-hint" className="field-hint">
+              {t("auth.serverUrlHint")}
+            </span>
+            <div className="server-url-row">
+              <input
+                id="auth-server-url"
+                name="serverUrl"
+                type="url"
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="none"
+                enterKeyHint="go"
+                aria-invalid={serverUrlInvalid}
+                aria-describedby="auth-server-url-hint"
+                placeholder={t("auth.serverUrlPlaceholder")}
+                value={serverDraft}
+                onChange={(e) => {
+                  setServerDraft(e.target.value);
+                  if (serverUrlInvalid) setServerUrlInvalid(false);
+                }}
+              />
+              <button
+                type="submit"
+                className="ghost-btn server-url-connect"
+                disabled={submitting}
+              >
+                {t("auth.serverUrlConnect")}
+              </button>
+            </div>
+            {serverUrlInvalid ? (
+              <span className="field-error" role="alert">
+                {t("auth.serverUrlInvalid")}
+              </span>
+            ) : null}
+          </div>
+        </form>
 
         {notice ? (
           <div className="banner banner-warn" role="status">
@@ -279,9 +366,18 @@ export function AuthView({
           </button>
         </form>
 
-        {serverInfo ? (
-          <footer className="auth-footer">
-            <span>{t("auth.serverVersion", { version: serverInfo.version })}</span>
+        <footer className="auth-footer">
+          <div className="auth-footer-target">
+            <span className="auth-footer-url truncate" title={activeServerLabel}>
+              {activeServerLabel}
+            </span>
+            {serverInfo ? (
+              <span className="auth-footer-version">
+                {t("auth.serverVersion", { version: serverInfo.version })}
+              </span>
+            ) : null}
+          </div>
+          {serverInfo ? (
             <span
               className={
                 serverInfo.relayEnabled
@@ -291,8 +387,8 @@ export function AuthView({
             >
               {serverInfo.relayEnabled ? t("sidebar.relayOn") : t("sidebar.relayOff")}
             </span>
-          </footer>
-        ) : null}
+          ) : null}
+        </footer>
       </div>
     </main>
   );

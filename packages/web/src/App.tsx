@@ -10,9 +10,13 @@ import type {
 import {
   ApiError,
   ServerWsClient,
+  getEnvServerUrl,
+  loadStoredServerUrl,
   loadStoredToken,
+  saveStoredServerUrl,
   saveStoredToken,
   serverApi,
+  validateServerBaseUrl,
   type ServerInfo,
   type WsConnectionState,
 } from "./api";
@@ -67,6 +71,8 @@ export function App() {
   const { t } = useI18n();
 
   const [theme, setTheme] = useState<"dark" | "light">(readInitialTheme);
+  const [serverUrl, setServerUrl] = useState<string>(loadStoredServerUrl);
+  const [serverConnectNonce, setServerConnectNonce] = useState(0);
   const [booting, setBooting] = useState(true);
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
   const [serverInfoError, setServerInfoError] = useState(false);
@@ -144,6 +150,7 @@ export function App() {
         setServerInfoError(false);
       } catch {
         if (!active) return;
+        setServerInfo(null);
         setServerInfoError(true);
       }
 
@@ -172,7 +179,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [t, serverUrl, serverConnectNonce]);
 
   const refreshSocial = useCallback(async () => {
     if (!token) return;
@@ -334,16 +341,20 @@ export function App() {
       }
     });
 
-    const ws = new ServerWsClient(token, {
-      onFrame: handleWsFrame,
-      onStateChange: setWsState,
-      onAuthFailure: () => {
-        saveStoredToken(null);
-        setToken(null);
-        setUser(null);
-        setAuthNotice(t("app.sessionExpired"));
+    const ws = new ServerWsClient(
+      token,
+      {
+        onFrame: handleWsFrame,
+        onStateChange: setWsState,
+        onAuthFailure: () => {
+          saveStoredToken(null);
+          setToken(null);
+          setUser(null);
+          setAuthNotice(t("app.sessionExpired"));
+        },
       },
-    });
+      serverUrl,
+    );
     wsRef.current = ws;
     ws.connect();
 
@@ -354,7 +365,7 @@ export function App() {
         wsRef.current = null;
       }
     };
-  }, [token, user, loadWorkspaceData, handleWsFrame, t]);
+  }, [token, user, serverUrl, loadWorkspaceData, handleWsFrame, t]);
 
   // Subscribe WS to every joined room
   useEffect(() => {
@@ -399,7 +410,33 @@ export function App() {
     setAuthNotice(null);
     setToken(newToken);
     setUser(newUser);
+    const activeUrl = loadStoredServerUrl();
+    setServerUrl((prev) => (prev === activeUrl ? prev : activeUrl));
     setServerInfo((prev) => (prev ? { ...prev, needsBootstrap: false } : prev));
+  }, []);
+
+  const handleChangeServerUrl = useCallback((nextUrl: string) => {
+    const checked = validateServerBaseUrl(nextUrl);
+    if (!checked.ok) return;
+    saveStoredServerUrl(checked.url || null);
+    const effectiveUrl = checked.url || getEnvServerUrl();
+    wsRef.current?.close();
+    wsRef.current = null;
+    saveStoredToken(null);
+    setToken(null);
+    setUser(null);
+    setAuthNotice(null);
+    setRooms([]);
+    setFriends([]);
+    setNodes([]);
+    setRoomMessages({});
+    setLoopBrokenByRoom({});
+    setActiveView(null);
+    setServerInfo(null);
+    setServerInfoError(false);
+    setBooting(true);
+    setServerUrl(effectiveUrl);
+    setServerConnectNonce((prev) => prev + 1);
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -491,6 +528,8 @@ export function App() {
   if (!token || !user) {
     return (
       <AuthView
+        serverUrl={serverUrl}
+        onChangeServerUrl={handleChangeServerUrl}
         serverInfo={serverInfo}
         serverInfoError={serverInfoError}
         notice={authNotice}

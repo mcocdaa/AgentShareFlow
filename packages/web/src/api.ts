@@ -93,10 +93,147 @@ export class ApiError extends Error {
   }
 }
 
+export const SERVER_URL_STORAGE_KEY = "agentshare_server_url";
 const TOKEN_STORAGE_KEY = "agentshare_token";
 const LOCAL_NODE_STORAGE_KEY = "agentshare_local_node";
 
+export function normalizeServerBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
+}
+
+export function validateServerBaseUrl(
+  raw: string,
+): { ok: true; url: string } | { ok: false } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, url: "" };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return { ok: false };
+    }
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return { ok: true, url: normalizeServerBaseUrl(`${parsed.origin}${path}`) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export function getEnvServerUrl(): string {
+  let raw: string | undefined;
+  try {
+    const env = (import.meta as { env?: Record<string, string | undefined> }).env;
+    raw = env?.VITE_API_BASE_URL;
+  } catch {
+    raw = undefined;
+  }
+  if (typeof raw !== "string") return "";
+  const checked = validateServerBaseUrl(raw);
+  return checked.ok ? checked.url : "";
+}
+
+export function readServerUrlFromQuery(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const param = new URLSearchParams(window.location.search).get("server");
+    if (!param || !param.trim()) return null;
+    const checked = validateServerBaseUrl(param);
+    return checked.ok && checked.url ? checked.url : null;
+  } catch {
+    return null;
+  }
+}
+
+export function loadStoredServerUrl(): string {
+  const fromQuery = readServerUrlFromQuery();
+  if (fromQuery) {
+    try {
+      window.localStorage.setItem(SERVER_URL_STORAGE_KEY, fromQuery);
+    } catch {
+      // Ignore storage restriction
+    }
+    return fromQuery;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(SERVER_URL_STORAGE_KEY);
+      if (stored && stored.trim()) {
+        const checked = validateServerBaseUrl(stored);
+        if (checked.ok && checked.url) {
+          return checked.url;
+        }
+      }
+    } catch {
+      // Ignore storage restriction
+    }
+  }
+  return getEnvServerUrl();
+}
+
+export function saveStoredServerUrl(url: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    const normalized = url ? normalizeServerBaseUrl(url) : "";
+    if (normalized) {
+      window.localStorage.setItem(SERVER_URL_STORAGE_KEY, normalized);
+    } else {
+      window.localStorage.removeItem(SERVER_URL_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage restriction
+  }
+  // Drop stale ?server= query param when user explicitly saves or clears server URL.
+  try {
+    if (window.location?.search) {
+      const current = new URL(window.location.href);
+      if (current.searchParams.has("server")) {
+        current.searchParams.delete("server");
+        window.history?.replaceState(null, "", current.toString());
+      }
+    }
+  } catch {
+    // Ignore history restriction
+  }
+}
+
+export function resolveApiUrl(path: string, baseUrl?: string): string {
+  const base =
+    baseUrl !== undefined
+      ? normalizeServerBaseUrl(baseUrl)
+      : loadStoredServerUrl();
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${normalizedPath}`;
+}
+
+export function resolveWsUrl(
+  token: string,
+  baseUrl?: string,
+  fallbackLocation?: { protocol: string; host: string },
+): string {
+  const base =
+    baseUrl !== undefined
+      ? normalizeServerBaseUrl(baseUrl)
+      : loadStoredServerUrl();
+  if (base) {
+    const parsed = new URL(base);
+    const wsProto = parsed.protocol === "https:" ? "wss:" : "ws:";
+    const prefix =
+      parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+    return `${wsProto}//${parsed.host}${prefix}/ws?token=${encodeURIComponent(token)}`;
+  }
+  const loc =
+    fallbackLocation ??
+    (typeof window !== "undefined" ? window.location : null);
+  if (!loc) {
+    throw new Error("Unable to resolve WebSocket URL without window.location");
+  }
+  const wsProto = loc.protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProto}//${loc.host}/ws?token=${encodeURIComponent(token)}`;
+}
+
 export function loadStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
   try {
     return window.localStorage.getItem(TOKEN_STORAGE_KEY);
   } catch {
@@ -105,6 +242,7 @@ export function loadStoredToken(): string | null {
 }
 
 export function saveStoredToken(token: string | null): void {
+  if (typeof window === "undefined") return;
   try {
     if (token) {
       window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -117,6 +255,7 @@ export function saveStoredToken(token: string | null): void {
 }
 
 export function loadLocalNodeConfig(): LocalNodeConfig | null {
+  if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(LOCAL_NODE_STORAGE_KEY);
     if (!raw) return null;
@@ -131,6 +270,7 @@ export function loadLocalNodeConfig(): LocalNodeConfig | null {
 }
 
 export function saveLocalNodeConfig(config: LocalNodeConfig | null): void {
+  if (typeof window === "undefined") return;
   try {
     if (config) {
       window.localStorage.setItem(LOCAL_NODE_STORAGE_KEY, JSON.stringify(config));
@@ -193,11 +333,11 @@ async function requestJson<T>(
 
 export const serverApi = {
   health(): Promise<HealthResponse> {
-    return requestJson<HealthResponse>("/healthz");
+    return requestJson<HealthResponse>(resolveApiUrl("/healthz"));
   },
 
   serverInfo(): Promise<ServerInfo> {
-    return requestJson<ServerInfo>("/api/v2/server/info");
+    return requestJson<ServerInfo>(resolveApiUrl("/api/v2/server/info"));
   },
 
   register(input: {
@@ -206,33 +346,42 @@ export const serverApi = {
     displayName?: string;
     inviteCode: string;
   }): Promise<{ token: string; user: UserProfile }> {
-    return requestJson("/api/v2/auth/register", { method: "POST", body: input });
+    return requestJson(resolveApiUrl("/api/v2/auth/register"), {
+      method: "POST",
+      body: input,
+    });
   },
 
   login(input: {
     username: string;
     password: string;
   }): Promise<{ token: string; user: UserProfile }> {
-    return requestJson("/api/v2/auth/login", { method: "POST", body: input });
+    return requestJson(resolveApiUrl("/api/v2/auth/login"), {
+      method: "POST",
+      body: input,
+    });
   },
 
   logout(token: string): Promise<{ ok: boolean }> {
-    return requestJson("/api/v2/auth/logout", { method: "POST", token });
+    return requestJson(resolveApiUrl("/api/v2/auth/logout"), {
+      method: "POST",
+      token,
+    });
   },
 
-  me(token: string): Promise<{ user: UserProfile }> {
-    return requestJson("/api/v2/me", { token });
+  me(token: string, baseUrl?: string): Promise<{ user: UserProfile }> {
+    return requestJson(resolveApiUrl("/api/v2/me", baseUrl), { token });
   },
 
   listInvites(token: string): Promise<{ invites: InviteRecord[] }> {
-    return requestJson("/api/v2/admin/invites", { token });
+    return requestJson(resolveApiUrl("/api/v2/admin/invites"), { token });
   },
 
   createInvite(
     token: string,
     input: { maxUses?: number; expiresInHours?: number; role?: UserRole },
   ): Promise<{ invite: InviteRecord }> {
-    return requestJson("/api/v2/admin/invites", {
+    return requestJson(resolveApiUrl("/api/v2/admin/invites"), {
       method: "POST",
       token,
       body: input,
@@ -243,7 +392,7 @@ export const serverApi = {
     token: string,
     input: { enableRelay: boolean },
   ): Promise<{ relayEnabled: boolean }> {
-    return requestJson("/api/v2/admin/settings", {
+    return requestJson(resolveApiUrl("/api/v2/admin/settings"), {
       method: "PATCH",
       token,
       body: input,
@@ -251,14 +400,14 @@ export const serverApi = {
   },
 
   listFriends(token: string): Promise<{ friends: FriendRecord[] }> {
-    return requestJson("/api/v2/friends", { token });
+    return requestJson(resolveApiUrl("/api/v2/friends"), { token });
   },
 
   requestFriend(
     token: string,
     username: string,
   ): Promise<{ friend: FriendRecord }> {
-    return requestJson("/api/v2/friends/request", {
+    return requestJson(resolveApiUrl("/api/v2/friends/request"), {
       method: "POST",
       token,
       body: { username },
@@ -266,24 +415,30 @@ export const serverApi = {
   },
 
   acceptFriend(token: string, id: string): Promise<{ friend: FriendRecord }> {
-    return requestJson(`/api/v2/friends/${encodeURIComponent(id)}/accept`, {
-      method: "POST",
-      token,
-    });
+    return requestJson(
+      resolveApiUrl(`/api/v2/friends/${encodeURIComponent(id)}/accept`),
+      {
+        method: "POST",
+        token,
+      },
+    );
   },
 
   deleteFriend(token: string, id: string): Promise<{ ok: boolean }> {
-    return requestJson(`/api/v2/friends/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      token,
-    });
+    return requestJson(
+      resolveApiUrl(`/api/v2/friends/${encodeURIComponent(id)}`),
+      {
+        method: "DELETE",
+        token,
+      },
+    );
   },
 
   createPairCode(
     token: string,
     input: { nodeId?: string; maxUses?: number; expiresInMinutes?: number },
   ): Promise<{ pairCode: PairCodeRecord }> {
-    return requestJson("/api/v2/pair-codes", {
+    return requestJson(resolveApiUrl("/api/v2/pair-codes"), {
       method: "POST",
       token,
       body: input,
@@ -294,7 +449,7 @@ export const serverApi = {
     token: string,
     code: string,
   ): Promise<{ ok: boolean; creatorUserId: string; nodes: NodePresence[] }> {
-    return requestJson("/api/v2/pair-codes/redeem", {
+    return requestJson(resolveApiUrl("/api/v2/pair-codes/redeem"), {
       method: "POST",
       token,
       body: { code },
@@ -302,18 +457,18 @@ export const serverApi = {
   },
 
   listNodes(token: string): Promise<{ nodes: NodePresence[] }> {
-    return requestJson("/api/v2/nodes", { token });
+    return requestJson(resolveApiUrl("/api/v2/nodes"), { token });
   },
 
   listRooms(token: string): Promise<{ rooms: RoomSummary[] }> {
-    return requestJson("/api/v2/rooms", { token });
+    return requestJson(resolveApiUrl("/api/v2/rooms"), { token });
   },
 
   createRoom(
     token: string,
     input: { name: string; slug?: string; topic?: string; maxAgentHops?: number },
   ): Promise<{ room: RoomSummary }> {
-    return requestJson("/api/v2/rooms", {
+    return requestJson(resolveApiUrl("/api/v2/rooms"), {
       method: "POST",
       token,
       body: input,
@@ -326,7 +481,9 @@ export const serverApi = {
   ): Promise<{ members: RoomMember[] }> {
     const raw = await requestJson<{
       members: Array<Partial<RoomMember> & { id?: string }>;
-    }>(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`, { token });
+    }>(resolveApiUrl(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`), {
+      token,
+    });
     const members: RoomMember[] = (raw.members ?? []).map((m) => ({
       userId: m.userId ?? m.id ?? "",
       username: m.username ?? "",
@@ -342,11 +499,14 @@ export const serverApi = {
     roomId: string,
     username: string,
   ): Promise<{ ok: boolean }> {
-    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`, {
-      method: "POST",
-      token,
-      body: { username },
-    });
+    return requestJson(
+      resolveApiUrl(`/api/v2/rooms/${encodeURIComponent(roomId)}/members`),
+      {
+        method: "POST",
+        token,
+        body: { username },
+      },
+    );
   },
 
   listRoomMessages(
@@ -359,7 +519,9 @@ export const serverApi = {
     if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
     const qs = params.toString();
     return requestJson(
-      `/api/v2/rooms/${encodeURIComponent(roomId)}/messages${qs ? `?${qs}` : ""}`,
+      resolveApiUrl(
+        `/api/v2/rooms/${encodeURIComponent(roomId)}/messages${qs ? `?${qs}` : ""}`,
+      ),
       { token },
     );
   },
@@ -369,19 +531,25 @@ export const serverApi = {
     roomId: string,
     input: { content: string; resetLoop?: boolean },
   ): Promise<{ message: RoomMessage }> {
-    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/messages`, {
-      method: "POST",
-      token,
-      body: input,
-    });
+    return requestJson(
+      resolveApiUrl(`/api/v2/rooms/${encodeURIComponent(roomId)}/messages`),
+      {
+        method: "POST",
+        token,
+        body: input,
+      },
+    );
   },
 
   markRoomRead(token: string, roomId: string, seq: number): Promise<{ ok: boolean }> {
-    return requestJson(`/api/v2/rooms/${encodeURIComponent(roomId)}/read`, {
-      method: "POST",
-      token,
-      body: { seq },
-    });
+    return requestJson(
+      resolveApiUrl(`/api/v2/rooms/${encodeURIComponent(roomId)}/read`),
+      {
+        method: "POST",
+        token,
+        body: { seq },
+      },
+    );
   },
 
   listInbox(
@@ -389,7 +557,7 @@ export const serverApi = {
     opts?: { unreadOnly?: boolean },
   ): Promise<{ items: InboxItem[] }> {
     const qs = opts?.unreadOnly ? "?unreadOnly=true" : "";
-    return requestJson(`/api/v2/inbox${qs}`, { token });
+    return requestJson(resolveApiUrl(`/api/v2/inbox${qs}`), { token });
   },
 };
 
@@ -480,6 +648,7 @@ export interface ServerWsHandlers {
 export class ServerWsClient {
   private readonly token: string;
   private readonly handlers: ServerWsHandlers;
+  private readonly serverUrl?: string;
   private ws: WebSocket | null = null;
   private closed = false;
   private reconnectAttempt = 0;
@@ -487,9 +656,10 @@ export class ServerWsClient {
   private pingTimer: number | null = null;
   private readonly subscribedRooms = new Set<string>();
 
-  constructor(token: string, handlers: ServerWsHandlers) {
+  constructor(token: string, handlers: ServerWsHandlers, serverUrl?: string) {
     this.token = token;
     this.handlers = handlers;
+    this.serverUrl = serverUrl;
   }
 
   connect(): void {
@@ -497,8 +667,7 @@ export class ServerWsClient {
     this.clearTimers();
     this.handlers.onStateChange("connecting");
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(this.token)}`;
+    const url = resolveWsUrl(this.token, this.serverUrl);
     const socket = new WebSocket(url);
     this.ws = socket;
 
@@ -548,7 +717,7 @@ export class ServerWsClient {
 
       // HTTP 401 rejected before WS upgrade surfaces as abnormal close (1006) without open.
       if (!opened && event.code === 1006) {
-        void serverApi.me(this.token).catch((err) => {
+        void serverApi.me(this.token, this.serverUrl).catch((err) => {
           if (!this.closed && err instanceof ApiError && err.status === 401) {
             this.closed = true;
             this.clearTimers();
