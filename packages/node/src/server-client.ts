@@ -1,5 +1,6 @@
 import type {
   FriendRecord,
+  IceServerConfig,
   InboxItem,
   NodePresence,
   PairCodeRecord,
@@ -14,6 +15,7 @@ export interface ServerInfo {
   relayEnabled: boolean;
   needsBootstrap: boolean;
   maxAgentHops: number;
+  iceServers?: IceServerConfig[];
 }
 
 export interface RoomMemberRecord {

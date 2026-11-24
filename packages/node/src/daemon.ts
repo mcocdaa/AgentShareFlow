@@ -16,15 +16,16 @@ import {
   type ClientToServerFrame,
   type DmMessage,
   type DmPayload,
+  type IceServerConfig,
   type InboxItem,
   type NodePolicyConfig,
   type NodePresence,
   type P2pPacket,
+  type PeerTransport,
   type RoomMessage,
   type ServerToClientFrame,
   type TransportAttempt,
   type TransportMode,
-  type WebRtcTransportStub as _WebRtcStubType,
 } from "@agentshare/core";
 import { McpPassiveAdapter, type AgentAdapter } from "./adapters.js";
 import {
@@ -41,6 +42,11 @@ import {
 import { LocalStore, type PendingApproval } from "./local-store.js";
 import { PolicyGuard } from "./policy.js";
 import { ServerApiClient } from "./server-client.js";
+import {
+  WebRtcPeerManager,
+  WebRtcTransport,
+  type WebRtcSignalSendInput,
+} from "./webrtc.js";
 
 const MAX_HTTP_BODY_BYTES = 1_048_576;
 const MAX_SEEN_NONCES = 50_000;
@@ -73,6 +79,10 @@ export interface AgentNodeDaemonOptions {
   localControlPort?: number;
   allowPrivate?: boolean;
   directTimeoutMs?: number;
+  enableWebRtc?: boolean;
+  iceServers?: IceServerConfig[];
+  webrtcConnectTimeoutMs?: number;
+  webrtcAckTimeoutMs?: number;
   wsHeartbeatMs?: number;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
@@ -190,6 +200,10 @@ export class AgentNodeDaemon {
   private readonly localControlPort: number;
   private readonly allowPrivate: boolean;
   private readonly directTimeoutMs: number;
+  private readonly enableWebRtc: boolean;
+  private readonly iceServersOverride?: IceServerConfig[];
+  private readonly webrtcConnectTimeoutMs?: number;
+  private readonly webrtcAckTimeoutMs?: number;
   private readonly wsHeartbeatMs: number;
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
@@ -200,6 +214,7 @@ export class AgentNodeDaemon {
   private policyGuard!: PolicyGuard;
   private router!: FallbackTransportRouter;
   private relayTransport!: RelayTransport;
+  private webrtcManager: WebRtcPeerManager | null = null;
 
   private p2pServer: Server | null = null;
   private localControlServer: Server | null = null;
@@ -240,6 +255,17 @@ export class AgentNodeDaemon {
     this.localControlPort = options.localControlPort ?? 0;
     this.allowPrivate = options.allowPrivate ?? false;
     this.directTimeoutMs = options.directTimeoutMs ?? 5_000;
+    this.enableWebRtc = options.enableWebRtc ?? true;
+    this.iceServersOverride =
+      options.iceServers !== undefined
+        ? options.iceServers.map((s) => ({
+            urls: Array.isArray(s.urls) ? [...s.urls] : s.urls,
+            ...(s.username !== undefined ? { username: s.username } : {}),
+            ...(s.credential !== undefined ? { credential: s.credential } : {}),
+          }))
+        : undefined;
+    this.webrtcConnectTimeoutMs = options.webrtcConnectTimeoutMs;
+    this.webrtcAckTimeoutMs = options.webrtcAckTimeoutMs;
     this.wsHeartbeatMs = options.wsHeartbeatMs ?? 25_000;
     this.reconnectBaseMs = options.reconnectBaseMs ?? 500;
     this.reconnectMaxMs = options.reconnectMaxMs ?? 15_000;
@@ -274,6 +300,10 @@ export class AgentNodeDaemon {
     return this._relayEnabled;
   }
 
+  get webrtcEnabled(): boolean {
+    return this.enableWebRtc;
+  }
+
   get authStopped(): boolean {
     return this._authStopped;
   }
@@ -292,6 +322,7 @@ export class AgentNodeDaemon {
     directUrl: string | null;
     online: boolean;
     relayEnabled: boolean;
+    webrtcEnabled: boolean;
     serverUrl: string;
   } {
     return {
@@ -300,6 +331,7 @@ export class AgentNodeDaemon {
       directUrl: this._directUrl,
       online: this._online,
       relayEnabled: this._relayEnabled,
+      webrtcEnabled: this.enableWebRtc,
       serverUrl: this.serverUrl,
     };
   }
@@ -317,13 +349,35 @@ export class AgentNodeDaemon {
       enabled: () => this._relayEnabled,
       forward: (toNodeId, packet) => this.forwardViaRelay(toNodeId, packet),
     });
-    const webrtcStub: _WebRtcStubType = new WebRtcTransportStub();
+
+    let webrtcTransport: PeerTransport;
+    if (this.enableWebRtc) {
+      this.webrtcManager = new WebRtcPeerManager({
+        localNodeId: this.identity.nodeId,
+        iceServers: this.iceServersOverride ?? [],
+        connectTimeoutMs: this.webrtcConnectTimeoutMs,
+        ackTimeoutMs: this.webrtcAckTimeoutMs,
+        sendSignal: (signal) => this.sendWebRtcSignal(signal),
+        onInboundPacket: async (packet) => {
+          const outcome = await this.handleInboundPacket(packet, "webrtc");
+          return outcome.ok
+            ? { ok: true, status: 200 }
+            : { ok: false, status: outcome.status, error: outcome.error };
+        },
+        onLog: (msg) => this.onLog(msg),
+      });
+      webrtcTransport = new WebRtcTransport(this.webrtcManager);
+    } else {
+      this.webrtcManager = null;
+      webrtcTransport = new WebRtcTransportStub("WebRTC disabled by configuration");
+    }
+
     this.router = new FallbackTransportRouter({
       direct: new DirectHttpTransport({
         allowPrivate: this.allowPrivate,
         timeoutMs: this.directTimeoutMs,
       }),
-      webrtc: webrtcStub,
+      webrtc: webrtcTransport,
       relay: this.relayTransport,
     });
 
@@ -672,7 +726,11 @@ export class AgentNodeDaemon {
         registered = true;
         this._online = true;
         this._relayEnabled = frame.relayEnabled;
+        this.relayTransport.setEnabled(frame.relayEnabled);
         this._ownerUsername = frame.node.ownerUsername;
+        if (this.iceServersOverride === undefined && Array.isArray(frame.iceServers)) {
+          this.webrtcManager?.updateIceServers(frame.iceServers);
+        }
         this.peerCache.set(frame.node.nodeId, frame.node);
         this.peerCache.set(frame.node.handle.toLowerCase(), frame.node);
         this.trackTask(this.syncRoomSubscriptions());
@@ -813,9 +871,23 @@ export class AgentNodeDaemon {
         this.trackTask(this.handleInboxMention(frame.item, frame.message));
         return;
       }
+      case "signal.deliver": {
+        if (
+          this.webrtcManager &&
+          (frame.signalType === "webrtc_sdp" || frame.signalType === "webrtc_ice")
+        ) {
+          this.trackTask(
+            this.webrtcManager.handleSignal(
+              frame.fromNodeId,
+              frame.signalType,
+              frame.payload,
+            ),
+          );
+        }
+        return;
+      }
       case "room.message":
       case "room.loop_broken":
-      case "signal.deliver":
         return;
       case "error": {
         this.onLog(`Server WS error [${frame.code}]: ${frame.message}`);
@@ -1158,9 +1230,34 @@ export class AgentNodeDaemon {
       const info = await this.api.serverInfo();
       this._relayEnabled = info.relayEnabled;
       this.relayTransport.setEnabled(info.relayEnabled);
+      if (this.iceServersOverride === undefined && Array.isArray(info.iceServers)) {
+        this.webrtcManager?.updateIceServers(info.iceServers);
+      }
     } catch {
       // Keep last known relay state from WS if info fetch fails transiently.
     }
+  }
+
+  private sendWebRtcSignal(signal: WebRtcSignalSendInput): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new TransportError("WEBRTC_UNAVAILABLE", "WebSocket is not connected", {
+        mode: "webrtc",
+      });
+    }
+    const cachedPeer = this.peerCache.get(signal.toNodeId);
+    if (cachedPeer && !cachedPeer.online) {
+      throw new TransportError(
+        "WEBRTC_UNAVAILABLE",
+        `Peer ${cachedPeer.handle} is offline`,
+        { mode: "webrtc" },
+      );
+    }
+    this.sendWsFrame({
+      type: signal.frameType,
+      toNodeId: signal.toNodeId,
+      signalType: signal.signalType,
+      payload: signal.payload,
+    });
   }
 
   private forwardViaRelay(toNodeId: string, packet: P2pPacket): Promise<void> {
@@ -1386,6 +1483,12 @@ export class AgentNodeDaemon {
       waiter.resolve([]);
     }
     this.waiters.clear();
+
+    if (this.webrtcManager) {
+      const manager = this.webrtcManager;
+      this.webrtcManager = null;
+      await manager.close();
+    }
 
     if (this.ws) {
       const ws = this.ws;

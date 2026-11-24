@@ -28,6 +28,7 @@ export * from "./policy.js";
 export * from "./adapters.js";
 export * from "./server-client.js";
 export * from "./daemon.js";
+export * from "./webrtc.js";
 export * from "./mcp.js";
 export * from "./demo-bot.js";
 
@@ -230,6 +231,8 @@ export function createCli(): Command {
     .option("--cmd <command>", "CLI agent command (tokenized safely without shell)")
     .option("--policy <path>", "Path to local policy.json")
     .option("--allow-private", "Allow private/loopback Direct P2P and HTTP/A2A targets", false)
+    .option("--no-webrtc", "Disable WebRTC DataChannel P2P transport")
+    .option("--stun <urls>", "Comma-separated STUN/TURN URLs (or 'none' to disable STUN)")
     .option("--server <url>", "Server URL override")
     .option("--token <token>", "Auth token override")
     .action(async (cmdOpts: {
@@ -247,6 +250,8 @@ export function createCli(): Command {
       cmd?: string;
       policy?: string;
       allowPrivate: boolean;
+      webrtc: boolean;
+      stun?: string;
       server?: string;
       token?: string;
     }, command: Command) => {
@@ -302,6 +307,17 @@ export function createCli(): Command {
         .map((c) => c.trim())
         .filter(Boolean);
 
+      const iceServers =
+        cmdOpts.stun === undefined
+          ? undefined
+          : cmdOpts.stun.trim().toLowerCase() === "none" || cmdOpts.stun.trim() === ""
+            ? []
+            : cmdOpts.stun
+                .split(",")
+                .map((u) => u.trim())
+                .filter(Boolean)
+                .map((urls) => ({ urls }));
+
       const daemon = new AgentNodeDaemon({
         homeDir,
         serverUrl,
@@ -317,6 +333,8 @@ export function createCli(): Command {
         advertiseUrl,
         localControlPort: Number(cmdOpts.localPort),
         allowPrivate: cmdOpts.allowPrivate,
+        enableWebRtc: cmdOpts.webrtc,
+        ...(iceServers !== undefined ? { iceServers } : {}),
         onLog: (msg) => process.stderr.write(`[agentshare] ${msg}\n`),
       });
 
@@ -331,7 +349,8 @@ export function createCli(): Command {
           `  Direct P2P URL: ${state.directUrl ?? "(none)"}`,
           `  Local Control:  ${state.localControlUrl}`,
           `  Local Token:    ${state.localControlToken}`,
-          `  Relay Fallback: ${daemon.relayEnabled ? "ON" : "OFF (P2P Direct Only)"}`,
+          `  WebRTC P2P:     ${daemon.webrtcEnabled ? "ON" : "OFF"}`,
+          `  Relay Fallback: ${daemon.relayEnabled ? "ON" : "OFF (P2P Only)"}`,
         ].join("\n"),
         Boolean(globals.json),
       );

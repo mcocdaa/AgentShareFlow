@@ -113,6 +113,8 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
       bindHost: "127.0.0.1",
       port: 0,
       allowPrivate: true,
+      iceServers: [],
+      webrtcConnectTimeoutMs: 1_000,
     });
     await daemonA.start();
     await daemonA.subscribeRoom(roomId);
@@ -127,6 +129,7 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
       bindHost: "127.0.0.1",
       port: 0,
       allowPrivate: true,
+      iceServers: [],
     });
     await daemonB.start();
     await daemonB.subscribeRoom(roomId);
@@ -231,6 +234,8 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
       port: 0,
       advertiseUrl: "http://127.0.0.1:1",
       allowPrivate: true,
+      enableWebRtc: false,
+      iceServers: [],
     });
     await daemonC.start();
 
@@ -342,4 +347,129 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
     );
     expect(replyOnSender.encrypted).toBe(true);
   });
+
+  it("7. falls back direct -> real WebRTC DataChannel -> optional E2EE relay with zero server DM rows", async () => {
+    await adminApi.updateSettings({ enableRelay: false });
+
+    const aliceLogin = await aliceApi.login({ username: "alice", password: "password123" });
+    const bobLogin = await bobApi.login({ username: "bob", password: "password123" });
+
+    await daemonA.close();
+    daemonA = new AgentNodeDaemon({
+      homeDir: path.join(tmpDir, "bot-a"),
+      serverUrl: server.url,
+      token: aliceLogin.token,
+      handle: "bot-a",
+      displayName: "Bot A (NAT / Unreachable Direct)",
+      adapter: new McpPassiveAdapter(),
+      bindHost: "127.0.0.1",
+      port: 0,
+      advertiseUrl: "http://127.0.0.1:1",
+      allowPrivate: true,
+      enableWebRtc: true,
+      iceServers: [],
+    });
+    await daemonA.start();
+
+    expect(daemonA.getStatus().webrtcEnabled).toBe(true);
+    const statusRes = await fetch(`${daemonA.localControlUrl}/local/status`, {
+      headers: { authorization: `Bearer ${daemonA.localControlToken}` },
+    });
+    expect(statusRes.status).toBe(200);
+    const statusBody = (await statusRes.json()) as { webrtcEnabled: boolean };
+    expect(statusBody.webrtcEnabled).toBe(true);
+
+    const webrtcSecret = "webrtc-e2ee-secret-payload-303";
+    const webrtcSend = await daemonB.sendDm("bot-a", webrtcSecret);
+    expect(webrtcSend.transport).toBe("webrtc");
+    expect(webrtcSend.message.transport).toBe("webrtc");
+    expect(webrtcSend.message.encrypted).toBe(true);
+    expect(
+      webrtcSend.attempts.some((a) => a.mode === "direct" && !a.ok && a.code === "DIRECT_FAILED"),
+    ).toBe(true);
+    expect(webrtcSend.attempts.some((a) => a.mode === "webrtc" && a.ok)).toBe(true);
+
+    const receivedOverWebRtc = await waitUntil(() =>
+      daemonA.localStore
+        .listDmMessages({ peer: "mcp-b" })
+        .find((m) => m.direction === "in" && m.content === webrtcSecret),
+    );
+    expect(receivedOverWebRtc.transport).toBe("webrtc");
+    expect(receivedOverWebRtc.encrypted).toBe(true);
+
+    const sentStoredLocally = daemonB.localStore
+      .listDmMessages({ peer: "bot-a" })
+      .find((m) => m.direction === "out" && m.content === webrtcSecret);
+    expect(sentStoredLocally?.transport).toBe("webrtc");
+
+    const db = new DatabaseSync(serverDbPath, { readOnly: true });
+    try {
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as Array<{ name: string }>;
+      expect(tables.some((t) => t.name.toLowerCase().includes("dm"))).toBe(false);
+    } finally {
+      db.close();
+    }
+
+    // Disabling WebRTC with unreachable directUrl fails while relay is disabled,
+    // then falls back to E2EE relay once admin enables relay.
+    await daemonB.close();
+    daemonB = new AgentNodeDaemon({
+      homeDir: path.join(tmpDir, "mcp-b"),
+      serverUrl: server.url,
+      token: bobLogin.token,
+      handle: "mcp-b",
+      displayName: "MCP B (WebRTC Disabled)",
+      adapter: new McpPassiveAdapter(),
+      bindHost: "127.0.0.1",
+      port: 0,
+      allowPrivate: true,
+      enableWebRtc: false,
+      iceServers: [],
+    });
+    await daemonB.start();
+    expect(daemonB.getStatus().webrtcEnabled).toBe(false);
+
+    let failedErr: unknown;
+    try {
+      await daemonB.sendDm("bot-a", "should-fail-without-webrtc-or-relay");
+    } catch (err) {
+      failedErr = err;
+    }
+    expect(failedErr).toBeInstanceOf(TransportError);
+    expect((failedErr as TransportError).code).toBe("ALL_TRANSPORTS_FAILED");
+    expect(
+      (failedErr as TransportError).attempts?.some(
+        (a) => a.mode === "direct" && a.code === "DIRECT_FAILED",
+      ),
+    ).toBe(true);
+    expect(
+      (failedErr as TransportError).attempts?.some(
+        (a) => a.mode === "webrtc" && a.code === "WEBRTC_UNAVAILABLE",
+      ),
+    ).toBe(true);
+    expect(
+      (failedErr as TransportError).attempts?.some(
+        (a) => a.mode === "relay" && a.code === "RELAY_DISABLED",
+      ),
+    ).toBe(true);
+
+    const enabled = await adminApi.updateSettings({ enableRelay: true });
+    expect(enabled.relayEnabled).toBe(true);
+
+    const relayFallbackText = "relay-fallback-after-webrtc-disabled-404";
+    const relaySend = await daemonB.sendDm("bot-a", relayFallbackText);
+    expect(relaySend.transport).toBe("relay");
+    expect(relaySend.message.transport).toBe("relay");
+    expect(relaySend.message.encrypted).toBe(true);
+
+    const receivedOverRelay = await waitUntil(() =>
+      daemonA.localStore
+        .listDmMessages({ peer: "mcp-b" })
+        .find((m) => m.direction === "in" && m.content === relayFallbackText),
+    );
+    expect(receivedOverRelay.transport).toBe("relay");
+    expect(receivedOverRelay.encrypted).toBe(true);
+  }, 20_000);
 });

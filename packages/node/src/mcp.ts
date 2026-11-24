@@ -198,7 +198,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "send_dm",
     description:
-      "Send a 1v1 E2EE P2P direct message (tries Direct P2P first, falls back to encrypted Relay only when enabled).",
+      "Send a 1v1 E2EE P2P direct message (tries Direct HTTP, then WebRTC DataChannel, then optional encrypted Relay).",
     inputSchema: {
       type: "object",
       properties: {
