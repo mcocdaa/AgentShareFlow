@@ -209,7 +209,7 @@ describe("@agentshare/server v2", () => {
     expect(health.status).toBe(200);
     expect(health.data).toEqual({
       ok: true,
-      version: "2.0.0",
+      version: "2.1.0",
       relayEnabled: false,
     });
 
@@ -222,7 +222,7 @@ describe("@agentshare/server v2", () => {
     }>(srv.url, "/api/v2/server/info");
     expect(info.status).toBe(200);
     expect(info.data).toEqual({
-      version: "2.0.0",
+      version: "2.1.0",
       relayEnabled: false,
       needsBootstrap: true,
       maxAgentHops: 5,

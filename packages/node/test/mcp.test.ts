@@ -205,7 +205,7 @@ describe("McpServer JSON-RPC 2.0", () => {
     expect(initRes.error).toBeUndefined();
     expect(initRes.result).toMatchObject({
       protocolVersion: "2024-11-05",
-      serverInfo: { name: "agentshare", version: "2.0.0" },
+      serverInfo: { name: "agentshare", version: "2.1.0" },
     });
 
     h.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
