@@ -216,7 +216,10 @@ describe("AgentNodeDaemon WebSocket auth failure guards", () => {
       expect(upgradeCount).toBe(1);
     } finally {
       await daemon.close();
-      await new Promise<void>((r) => server.close(() => r()));
+      await new Promise<void>((r) => {
+        server.close(() => r());
+        server.closeAllConnections?.();
+      });
     }
   });
 
@@ -287,7 +290,10 @@ describe("AgentNodeDaemon WebSocket auth failure guards", () => {
     } finally {
       await daemon.close();
       wss.close();
-      await new Promise<void>((r) => server.close(() => r()));
+      await new Promise<void>((r) => {
+        server.close(() => r());
+        server.closeAllConnections?.();
+      });
     }
   });
 });

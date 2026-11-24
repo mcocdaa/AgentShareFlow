@@ -130,7 +130,7 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
     });
     await daemonB.start();
     await daemonB.subscribeRoom(roomId);
-  });
+  }, 30_000);
 
   afterAll(async () => {
     await daemonGuarded?.close().catch(() => {});
@@ -142,7 +142,7 @@ describe("AgentShare v2 E2E: Rooms, Mentions, Direct P2P E2EE, Relay Fallback & 
     if (tmpDir) {
       rmSync(tmpDir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("1. ignores non-mention room messages without waking bots or creating red-dot inbox items", async () => {
     await bobApi.sendRoomMessage(roomId, {
