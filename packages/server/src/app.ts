@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_AGENT_HOPS,
   HANDLE_PATTERN,
   UserRoleSchema,
+  type IceServerConfig,
   type UserProfile,
 } from "@agentshare/core";
 import { Hono, type Context } from "hono";
@@ -20,6 +21,7 @@ import { DbError, type ServerDb } from "./db.js";
 import type { ServerHub } from "./hub.js";
 
 const SERVER_VERSION = "2.0.0";
+const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -51,6 +53,7 @@ export interface CreateAppOptions {
   db: ServerDb;
   hub: ServerHub;
   maxAgentHops?: number;
+  iceServers?: IceServerConfig[];
   webDistDir?: string;
 }
 
@@ -70,6 +73,10 @@ async function readJsonBody(c: Context): Promise<Record<string, unknown>> {
 export function createApp(options: CreateAppOptions): Hono<AppEnv> {
   const { db, hub } = options;
   const maxAgentHops = options.maxAgentHops ?? DEFAULT_MAX_AGENT_HOPS;
+  const iceServers =
+    options.iceServers !== undefined
+      ? options.iceServers
+      : [{ urls: DEFAULT_STUN_URL }];
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {
@@ -99,6 +106,7 @@ export function createApp(options: CreateAppOptions): Hono<AppEnv> {
       relayEnabled: db.getRelayEnabled(),
       needsBootstrap: db.countUsers() === 0,
       maxAgentHops,
+      iceServers,
     });
   });
 

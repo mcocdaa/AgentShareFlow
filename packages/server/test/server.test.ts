@@ -10,9 +10,15 @@ import {
   keyFingerprint,
   ServerToClientFrameSchema,
   verifyAndDecryptPacket,
+  type IceServerConfig,
   type ServerToClientFrame,
 } from "@agentshare/core";
-import { startServer, type StartedServer } from "../src/index.js";
+import {
+  DEFAULT_STUN_URL,
+  parseStunUrls,
+  startServer,
+  type StartedServer,
+} from "../src/index.js";
 
 class WsClient {
   readonly ws: WebSocket;
@@ -210,6 +216,7 @@ describe("@agentshare/server v2", () => {
       relayEnabled: boolean;
       needsBootstrap: boolean;
       maxAgentHops: number;
+      iceServers: IceServerConfig[];
     }>(srv.url, "/api/v2/server/info");
     expect(info.status).toBe(200);
     expect(info.data).toEqual({
@@ -217,6 +224,7 @@ describe("@agentshare/server v2", () => {
       relayEnabled: false,
       needsBootstrap: true,
       maxAgentHops: 5,
+      iceServers: [{ urls: DEFAULT_STUN_URL }],
     });
     expect(srv.bootstrapInviteCode).toBeTruthy();
   });
@@ -1215,5 +1223,326 @@ describe("@agentshare/server v2", () => {
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it("advertises default, custom, and empty iceServers in /api/v2/server/info, WS node.registered, and CLI AGENTSHARE_STUN_URLS", async () => {
+    expect(parseStunUrls(undefined)).toEqual([{ urls: DEFAULT_STUN_URL }]);
+    expect(parseStunUrls("")).toEqual([]);
+    expect(parseStunUrls("   ")).toEqual([]);
+    expect(
+      parseStunUrls("stun:one.example.com:3478, stun:two.example.com:3478 , "),
+    ).toEqual([
+      { urls: "stun:one.example.com:3478" },
+      { urls: "stun:two.example.com:3478" },
+    ]);
+
+    const registerAndCheckIce = async (
+      srv: StartedServer,
+      expectedIceServers: IceServerConfig[],
+    ) => {
+      const info = await apiJson<{ iceServers: IceServerConfig[] }>(
+        srv.url,
+        "/api/v2/server/info",
+      );
+      expect(info.status).toBe(200);
+      expect(info.data.iceServers).toEqual(expectedIceServers);
+
+      const login = await apiJson<{ token: string }>(
+        srv.url,
+        "/api/v2/auth/login",
+        { method: "POST", body: { username: "alice", password: "alicepass123" } },
+      );
+      const ws = await openWs(`${srv.wsUrl}?token=${login.data.token}`);
+      const keys = generateNodeKeyPair();
+      const nodeId = keyFingerprint(keys.signPublicKey);
+      ws.send({
+        type: "node.register",
+        nodeId,
+        handle: "ice-bot",
+        displayName: "ICE Bot",
+        kind: "mcp",
+        description: "",
+        capabilities: [],
+        signPublicKey: keys.signPublicKey,
+        kxPublicKey: keys.kxPublicKey,
+        directUrl: null,
+      });
+      const reg = await ws.nextFrame((f) => f.type === "node.registered");
+      expect(reg.type).toBe("node.registered");
+      if (reg.type === "node.registered") {
+        expect(reg.iceServers).toEqual(expectedIceServers);
+      }
+    };
+
+    const defaultSrv = await boot({
+      adminUser: "alice",
+      adminPass: "alicepass123",
+    });
+    await registerAndCheckIce(defaultSrv, [{ urls: DEFAULT_STUN_URL }]);
+
+    const customIce: IceServerConfig[] = [
+      { urls: "stun:stun1.example.com:3478" },
+      {
+        urls: ["turn:turn.example.com:3478?transport=udp"],
+        username: "turn-user",
+        credential: "turn-pass",
+      },
+    ];
+    const customSrv = await boot({
+      adminUser: "alice",
+      adminPass: "alicepass123",
+      iceServers: customIce,
+    });
+    await registerAndCheckIce(customSrv, customIce);
+
+    const emptySrv = await boot({
+      adminUser: "alice",
+      adminPass: "alicepass123",
+      iceServers: [],
+    });
+    await registerAndCheckIce(emptySrv, []);
+
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), "agentshare-ice-cli-"));
+    try {
+      const serverEntry = path.resolve(
+        import.meta.dirname,
+        "../dist/server.js",
+      );
+      const runCliAndCheckIce = async (
+        subDir: string,
+        stunEnv: string | undefined,
+        expected: IceServerConfig[],
+      ) => {
+        const env: NodeJS.ProcessEnv = {
+          ...process.env,
+          PORT: "0",
+          HOST: "127.0.0.1",
+          AGENTSHARE_DATA: path.join(tmpDir, subDir),
+          AGENTSHARE_ADMIN_USER: "cliadmin",
+          AGENTSHARE_ADMIN_PASS: "clipass1234",
+        };
+        if (stunEnv === undefined) {
+          delete env.AGENTSHARE_STUN_URLS;
+        } else {
+          env.AGENTSHARE_STUN_URLS = stunEnv;
+        }
+        const child = spawn(process.execPath, [serverEntry], {
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        try {
+          const listenUrl = await new Promise<string>((resolve, reject) => {
+            let out = "";
+            const timer = setTimeout(
+              () => reject(new Error(`Server CLI failed to start: ${out}`)),
+              5000,
+            );
+            child.stdout.on("data", (chunk: Buffer) => {
+              out += chunk.toString("utf8");
+              const match = /listening on (http:\/\/[^\s]+)/.exec(out);
+              if (match?.[1]) {
+                clearTimeout(timer);
+                resolve(match[1]);
+              }
+            });
+            child.once("exit", (code) => {
+              clearTimeout(timer);
+              reject(new Error(`Server CLI exited early (${code}): ${out}`));
+            });
+          });
+          const info = await apiJson<{ iceServers: IceServerConfig[] }>(
+            listenUrl,
+            "/api/v2/server/info",
+          );
+          expect(info.status).toBe(200);
+          expect(info.data.iceServers).toEqual(expected);
+        } finally {
+          const exitCode = await new Promise<number | null>((resolve) => {
+            child.once("exit", (code) => resolve(code));
+            child.kill("SIGTERM");
+          });
+          expect(exitCode).toBe(0);
+        }
+      };
+
+      await runCliAndCheckIce("default", undefined, [{ urls: DEFAULT_STUN_URL }]);
+      await runCliAndCheckIce(
+        "custom",
+        "stun:a.example.com:3478, stun:b.example.com:3478",
+        [
+          { urls: "stun:a.example.com:3478" },
+          { urls: "stun:b.example.com:3478" },
+        ],
+      );
+      await runCliAndCheckIce("empty", "", []);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("relays signal.offer/signal.answer between authorized peers and rejects oversized (>64 KiB) payloads with PAYLOAD_TOO_LARGE", async () => {
+    const srv = await boot({ adminUser: "alice", adminPass: "alicepass123" });
+    const aliceToken = (
+      await apiJson<{ token: string }>(srv.url, "/api/v2/auth/login", {
+        method: "POST",
+        body: { username: "alice", password: "alicepass123" },
+      })
+    ).data.token;
+
+    const invCode = (
+      await apiJson<{ invite: { code: string } }>(
+        srv.url,
+        "/api/v2/admin/invites",
+        { method: "POST", token: aliceToken, body: { maxUses: 2 } },
+      )
+    ).data.invite.code;
+
+    const bobToken = (
+      await apiJson<{ token: string }>(srv.url, "/api/v2/auth/register", {
+        method: "POST",
+        body: {
+          username: "bob",
+          password: "bobpassword1",
+          inviteCode: invCode,
+        },
+      })
+    ).data.token;
+
+    const keysA = generateNodeKeyPair();
+    const nodeAId = keyFingerprint(keysA.signPublicKey);
+    const wsA = await openWs(`${srv.wsUrl}?token=${aliceToken}`);
+    wsA.send({
+      type: "node.register",
+      nodeId: nodeAId,
+      handle: "sig-a",
+      displayName: "Sig A",
+      kind: "mcp",
+      description: "",
+      capabilities: [],
+      signPublicKey: keysA.signPublicKey,
+      kxPublicKey: keysA.kxPublicKey,
+      directUrl: null,
+    });
+    await wsA.nextFrame((f) => f.type === "node.registered");
+
+    const keysB = generateNodeKeyPair();
+    const nodeBId = keyFingerprint(keysB.signPublicKey);
+    const wsB = await openWs(`${srv.wsUrl}?token=${bobToken}`);
+    wsB.send({
+      type: "node.register",
+      nodeId: nodeBId,
+      handle: "sig-b",
+      displayName: "Sig B",
+      kind: "mcp",
+      description: "",
+      capabilities: [],
+      signPublicKey: keysB.signPublicKey,
+      kxPublicKey: keysB.kxPublicKey,
+      directUrl: null,
+    });
+    await wsB.nextFrame((f) => f.type === "node.registered");
+
+    const friendReq = await apiJson<{ friend: { id: string } }>(
+      srv.url,
+      "/api/v2/friends/request",
+      { method: "POST", token: aliceToken, body: { username: "bob" } },
+    );
+    await apiJson(srv.url, `/api/v2/friends/${friendReq.data.friend.id}/accept`, {
+      method: "POST",
+      token: bobToken,
+    });
+
+    wsA.send({
+      type: "signal.offer",
+      toNodeId: nodeBId,
+      signalType: "webrtc_sdp",
+      payload: { type: "offer", sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n" },
+    });
+    const deliveredOffer = await wsB.nextFrame(
+      (f) => f.type === "signal.deliver",
+    );
+    expect(deliveredOffer).toEqual({
+      type: "signal.deliver",
+      fromNodeId: nodeAId,
+      fromHandle: "sig-a",
+      signalType: "webrtc_sdp",
+      payload: { type: "offer", sdp: "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n" },
+    });
+
+    wsB.send({
+      type: "signal.answer",
+      toNodeId: nodeAId,
+      signalType: "webrtc_ice",
+      payload: { candidate: "candidate:1 1 udp 2122260223 192.0.2.1 50000 typ host" },
+    });
+    const deliveredAnswer = await wsA.nextFrame(
+      (f) => f.type === "signal.deliver",
+    );
+    expect(deliveredAnswer).toEqual({
+      type: "signal.deliver",
+      fromNodeId: nodeBId,
+      fromHandle: "sig-b",
+      signalType: "webrtc_ice",
+      payload: { candidate: "candidate:1 1 udp 2122260223 192.0.2.1 50000 typ host" },
+    });
+
+    const exactLimitPayload = { sdp: "a".repeat(65_536 - '{"sdp":""}'.length) };
+    expect(Buffer.byteLength(JSON.stringify(exactLimitPayload), "utf8")).toBe(
+      65_536,
+    );
+    wsA.send({
+      type: "signal.offer",
+      toNodeId: nodeBId,
+      signalType: "webrtc_sdp",
+      payload: exactLimitPayload,
+    });
+    const deliveredLimit = await wsB.nextFrame(
+      (f) => f.type === "signal.deliver",
+    );
+    expect(deliveredLimit.type).toBe("signal.deliver");
+
+    const oversizedOfferPayload = {
+      sdp: "a".repeat(65_536 - '{"sdp":""}'.length + 1),
+    };
+    expect(
+      Buffer.byteLength(JSON.stringify(oversizedOfferPayload), "utf8"),
+    ).toBe(65_537);
+    wsA.send({
+      type: "signal.offer",
+      toNodeId: nodeBId,
+      signalType: "webrtc_sdp",
+      payload: oversizedOfferPayload,
+    });
+    const offerTooLarge = await wsA.nextFrame((f) => f.type === "error");
+    expect(offerTooLarge.type === "error" && offerTooLarge.code).toBe(
+      "PAYLOAD_TOO_LARGE",
+    );
+    await wsB.expectNoFrame((f) => f.type === "signal.deliver");
+
+    const multiByteOversizedPayload = { sdp: "中".repeat(22_000) };
+    expect(
+      Buffer.byteLength(JSON.stringify(multiByteOversizedPayload), "utf8"),
+    ).toBeGreaterThan(65_536);
+    wsB.send({
+      type: "signal.answer",
+      toNodeId: nodeAId,
+      signalType: "webrtc_sdp",
+      payload: multiByteOversizedPayload,
+    });
+    const answerTooLarge = await wsB.nextFrame((f) => f.type === "error");
+    expect(answerTooLarge.type === "error" && answerTooLarge.code).toBe(
+      "PAYLOAD_TOO_LARGE",
+    );
+    await wsA.expectNoFrame((f) => f.type === "signal.deliver");
+
+    await wsB.close();
+    wsA.send({
+      type: "signal.offer",
+      toNodeId: nodeBId,
+      signalType: "webrtc_sdp",
+      payload: { sdp: "after-disconnect" },
+    });
+    const offlineErr = await wsA.nextFrame((f) => f.type === "error");
+    expect(offlineErr.type === "error" && offlineErr.code).toBe("PEER_OFFLINE");
   });
 });

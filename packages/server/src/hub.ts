@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   ClientToServerFrameSchema,
   extractMentions,
+  type IceServerConfig,
   type InboxItem,
   type RoomMessage,
   type ServerToClientFrame,
@@ -12,6 +13,12 @@ import { DbError, type ServerDb } from "./db.js";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_ROOM_MESSAGE_LENGTH = 32_768;
+const MAX_SIGNAL_PAYLOAD_BYTES = 65_536;
+const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
+
+export interface ServerHubOptions {
+  iceServers?: IceServerConfig[];
+}
 
 interface ClientConnection {
   id: string;
@@ -36,14 +43,19 @@ export interface PostRoomMessageInput {
 
 export class ServerHub {
   private readonly db: ServerDb;
+  private readonly iceServers: IceServerConfig[];
   private readonly connections = new Set<ClientConnection>();
   private readonly byUserId = new Map<string, Set<ClientConnection>>();
   private readonly byNodeId = new Map<string, ClientConnection>();
   private readonly byRoomId = new Map<string, Set<ClientConnection>>();
   private readonly heartbeatTimer: NodeJS.Timeout;
 
-  constructor(db: ServerDb) {
+  constructor(db: ServerDb, options: ServerHubOptions = {}) {
     this.db = db;
+    this.iceServers =
+      options.iceServers !== undefined
+        ? options.iceServers
+        : [{ urls: DEFAULT_STUN_URL }];
     this.heartbeatTimer = setInterval(() => {
       for (const conn of this.connections) {
         if (!conn.alive) {
@@ -305,6 +317,7 @@ export class ServerHub {
             type: "node.registered",
             node: liveNode,
             relayEnabled: this.db.getRelayEnabled(),
+            iceServers: this.iceServers,
           });
           this.broadcastPresenceUpdate(registered.nodeId, conn.user.id);
         } catch (err) {
@@ -388,6 +401,18 @@ export class ServerHub {
             type: "error",
             code: "NODE_NOT_REGISTERED",
             message: "Register a node before signaling",
+          });
+          return;
+        }
+        const payloadBytes = Buffer.byteLength(
+          JSON.stringify(frame.payload ?? null),
+          "utf8",
+        );
+        if (payloadBytes > MAX_SIGNAL_PAYLOAD_BYTES) {
+          this.sendFrame(conn, {
+            type: "error",
+            code: "PAYLOAD_TOO_LARGE",
+            message: `Signaling payload exceeds maximum size of ${MAX_SIGNAL_PAYLOAD_BYTES} bytes`,
           });
           return;
         }

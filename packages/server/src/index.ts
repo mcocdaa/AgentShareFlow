@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_MAX_AGENT_HOPS } from "@agentshare/core";
+import { DEFAULT_MAX_AGENT_HOPS, type IceServerConfig } from "@agentshare/core";
 import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 import { createApp } from "./app.js";
@@ -34,7 +34,28 @@ export {
   type RoomRow,
   type UserRow,
 } from "./db.js";
-export { ServerHub, type PostRoomMessageInput } from "./hub.js";
+export {
+  ServerHub,
+  type PostRoomMessageInput,
+  type ServerHubOptions,
+} from "./hub.js";
+
+export const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
+
+export function parseStunUrls(value: string | undefined): IceServerConfig[] {
+  if (value === undefined) {
+    return [{ urls: DEFAULT_STUN_URL }];
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return trimmed
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((urls) => ({ urls }));
+}
 
 export interface StartServerOptions {
   port?: number;
@@ -44,6 +65,7 @@ export interface StartServerOptions {
   publicUrl?: string;
   relayEnabled?: boolean;
   maxAgentHops?: number;
+  iceServers?: IceServerConfig[];
   adminUser?: string;
   adminPass?: string;
   bootstrapInvite?: string;
@@ -88,6 +110,10 @@ export async function startServer(
   }
 
   const maxAgentHops = options.maxAgentHops ?? DEFAULT_MAX_AGENT_HOPS;
+  const iceServers =
+    options.iceServers !== undefined
+      ? options.iceServers
+      : parseStunUrls(process.env.AGENTSHARE_STUN_URLS);
   const { bootstrapInviteCode } = bootstrapAuth(db, {
     adminUser: options.adminUser ?? process.env.AGENTSHARE_ADMIN_USER,
     adminPass: options.adminPass ?? process.env.AGENTSHARE_ADMIN_PASS,
@@ -95,11 +121,12 @@ export async function startServer(
       options.bootstrapInvite ?? process.env.AGENTSHARE_BOOTSTRAP_INVITE,
   });
 
-  const hub = new ServerHub(db);
+  const hub = new ServerHub(db, { iceServers });
   const app = createApp({
     db,
     hub,
     maxAgentHops,
+    iceServers,
     webDistDir: options.webDistDir ?? DEFAULT_WEB_DIST_DIR,
   });
 

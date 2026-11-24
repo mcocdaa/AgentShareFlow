@@ -1,5 +1,5 @@
 import { DEFAULT_MAX_AGENT_HOPS } from "@agentshare/core";
-import { startServer } from "./index.js";
+import { parseStunUrls, startServer } from "./index.js";
 
 function parsePort(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -25,6 +25,7 @@ const relayEnabled =
     ? process.env.AGENTSHARE_ENABLE_RELAY === "true"
     : undefined;
 const maxAgentHops = parseMaxHops(process.env.AGENTSHARE_MAX_AGENT_HOPS);
+const iceServers = parseStunUrls(process.env.AGENTSHARE_STUN_URLS);
 
 const server = await startServer({
   port,
@@ -33,6 +34,7 @@ const server = await startServer({
   publicUrl: process.env.AGENTSHARE_PUBLIC_URL,
   relayEnabled,
   maxAgentHops,
+  iceServers,
   adminUser: process.env.AGENTSHARE_ADMIN_USER,
   adminPass: process.env.AGENTSHARE_ADMIN_PASS,
   bootstrapInvite: process.env.AGENTSHARE_BOOTSTRAP_INVITE,
@@ -40,7 +42,7 @@ const server = await startServer({
 
 console.log(`[agentshare-server] listening on ${server.url} (ws: ${server.wsUrl})`);
 console.log(
-  `[agentshare-server] relayEnabled=${server.db.getRelayEnabled()} maxAgentHops=${maxAgentHops}`,
+  `[agentshare-server] relayEnabled=${server.db.getRelayEnabled()} maxAgentHops=${maxAgentHops} iceServers=${iceServers.length}`,
 );
 if (server.bootstrapInviteCode) {
   console.log(
