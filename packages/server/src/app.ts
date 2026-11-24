@@ -1,6 +1,3 @@
-import { existsSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import {
   DEFAULT_MAX_AGENT_HOPS,
   HANDLE_PATTERN,
@@ -23,24 +20,9 @@ import type { ServerHub } from "./hub.js";
 const SERVER_VERSION = "2.0.0";
 const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
 
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".ico": "image/x-icon",
-  ".webp": "image/webp",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".txt": "text/plain; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-};
+function normalizeOrigin(origin: string): string {
+  return origin.trim().replace(/\/+$/, "");
+}
 
 type AppEnv = {
   Variables: {
@@ -54,7 +36,7 @@ export interface CreateAppOptions {
   hub: ServerHub;
   maxAgentHops?: number;
   iceServers?: IceServerConfig[];
-  webDistDir?: string;
+  corsOrigins?: string[];
 }
 
 async function readJsonBody(c: Context): Promise<Record<string, unknown>> {
@@ -77,6 +59,11 @@ export function createApp(options: CreateAppOptions): Hono<AppEnv> {
     options.iceServers !== undefined
       ? options.iceServers
       : [{ urls: DEFAULT_STUN_URL }];
+  const normalizedCorsOrigins = (options.corsOrigins ?? ["*"])
+    .map(normalizeOrigin)
+    .filter((origin) => origin.length > 0);
+  const allowAnyOrigin = normalizedCorsOrigins.includes("*");
+  const allowedOrigins = new Set(normalizedCorsOrigins);
   const app = new Hono<AppEnv>();
 
   app.onError((err, c) => {
@@ -90,6 +77,41 @@ export function createApp(options: CreateAppOptions): Hono<AppEnv> {
       { error: "Internal server error", code: "INTERNAL_ERROR" },
       500,
     );
+  });
+
+  app.notFound((c) => c.json({ error: "Not found", code: "NOT_FOUND" }, 404));
+
+  app.use("*", async (c, next) => {
+    let originAllowed = false;
+    if (allowAnyOrigin) {
+      c.header("Access-Control-Allow-Origin", "*");
+      originAllowed = true;
+    } else {
+      const requestOrigin = c.req.header("origin");
+      if (requestOrigin && allowedOrigins.has(normalizeOrigin(requestOrigin))) {
+        c.header("Access-Control-Allow-Origin", requestOrigin);
+        c.header("Vary", "Origin", { append: true });
+        originAllowed = true;
+      }
+    }
+
+    if (originAllowed) {
+      c.header(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PATCH, DELETE, OPTIONS",
+      );
+      c.header(
+        "Access-Control-Allow-Headers",
+        "Authorization, Content-Type, Accept",
+      );
+      c.header("Access-Control-Max-Age", "86400");
+    }
+
+    if (c.req.method === "OPTIONS") {
+      return c.body(null, 204);
+    }
+
+    await next();
   });
 
   app.get("/healthz", (c) => {
@@ -576,56 +598,6 @@ export function createApp(options: CreateAppOptions): Hono<AppEnv> {
     });
     return c.json({ items });
   });
-
-  app.all("/api/*", (c) => {
-    return c.json({ error: "Not found", code: "NOT_FOUND" }, 404);
-  });
-
-  const resolvedWebDist = options.webDistDir
-    ? path.resolve(options.webDistDir)
-    : undefined;
-  const hasWebDist =
-    resolvedWebDist !== undefined &&
-    existsSync(path.join(resolvedWebDist, "index.html"));
-
-  if (hasWebDist && resolvedWebDist) {
-    const rootWithSep = resolvedWebDist.endsWith(path.sep)
-      ? resolvedWebDist
-      : `${resolvedWebDist}${path.sep}`;
-    const indexPath = path.join(resolvedWebDist, "index.html");
-
-    app.get("*", async (c) => {
-      let decodedPath: string;
-      try {
-        decodedPath = decodeURIComponent(c.req.path);
-      } catch {
-        return c.text("Bad Request", 400);
-      }
-      const relativePath = decodedPath.replace(/^\/+/, "");
-      if (relativePath.length > 0) {
-        const candidate = path.resolve(resolvedWebDist, relativePath);
-        if (candidate.startsWith(rootWithSep) && existsSync(candidate)) {
-          const stat = statSync(candidate);
-          if (stat.isFile()) {
-            const ext = path.extname(candidate).toLowerCase();
-            const contentType =
-              MIME_TYPES[ext] ?? "application/octet-stream";
-            const bytes = await readFile(candidate);
-            return c.body(bytes, 200, { "content-type": contentType });
-          }
-        }
-      }
-      const html = await readFile(indexPath, "utf8");
-      return c.html(html, 200);
-    });
-  } else {
-    app.get("/", (c) => {
-      return c.html(
-        `<!doctype html><html><head><meta charset="utf-8"><title>AgentShareFlow v2</title></head><body><h1>AgentShareFlow v${SERVER_VERSION}</h1><p>Server is running. Build <code>@agentshare/web</code> to serve the Web UI.</p></body></html>`,
-        200,
-      );
-    });
-  }
 
   return app;
 }

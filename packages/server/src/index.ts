@@ -1,7 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { DEFAULT_MAX_AGENT_HOPS, type IceServerConfig } from "@agentshare/core";
 import { getRequestListener } from "@hono/node-server";
 import { WebSocketServer } from "ws";
@@ -41,6 +40,7 @@ export {
 } from "./hub.js";
 
 export const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
+export const DEFAULT_CORS_ORIGINS = ["*"];
 
 export function parseStunUrls(value: string | undefined): IceServerConfig[] {
   if (value === undefined) {
@@ -57,6 +57,20 @@ export function parseStunUrls(value: string | undefined): IceServerConfig[] {
     .map((urls) => ({ urls }));
 }
 
+export function parseCorsOrigins(value: string | undefined): string[] {
+  if (value === undefined) {
+    return [...DEFAULT_CORS_ORIGINS];
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "none") {
+    return [];
+  }
+  return trimmed
+    .split(",")
+    .map((entry) => entry.trim().replace(/\/+$/, ""))
+    .filter((entry) => entry.length > 0);
+}
+
 export interface StartServerOptions {
   port?: number;
   host?: string;
@@ -66,10 +80,10 @@ export interface StartServerOptions {
   relayEnabled?: boolean;
   maxAgentHops?: number;
   iceServers?: IceServerConfig[];
+  corsOrigins?: string[];
   adminUser?: string;
   adminPass?: string;
   bootstrapInvite?: string;
-  webDistDir?: string;
 }
 
 export interface StartedServer {
@@ -81,11 +95,6 @@ export interface StartedServer {
   hub: ServerHub;
   close(): Promise<void>;
 }
-
-const DEFAULT_WEB_DIST_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../web/dist",
-);
 
 export async function startServer(
   options: StartServerOptions = {},
@@ -114,6 +123,10 @@ export async function startServer(
     options.iceServers !== undefined
       ? options.iceServers
       : parseStunUrls(process.env.AGENTSHARE_STUN_URLS);
+  const corsOrigins =
+    options.corsOrigins !== undefined
+      ? options.corsOrigins
+      : parseCorsOrigins(process.env.AGENTSHARE_CORS_ORIGINS);
   const { bootstrapInviteCode } = bootstrapAuth(db, {
     adminUser: options.adminUser ?? process.env.AGENTSHARE_ADMIN_USER,
     adminPass: options.adminPass ?? process.env.AGENTSHARE_ADMIN_PASS,
@@ -127,7 +140,7 @@ export async function startServer(
     hub,
     maxAgentHops,
     iceServers,
-    webDistDir: options.webDistDir ?? DEFAULT_WEB_DIST_DIR,
+    corsOrigins,
   });
 
   const httpServer = createServer(getRequestListener(app.fetch));

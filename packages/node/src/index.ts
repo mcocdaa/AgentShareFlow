@@ -225,6 +225,11 @@ export function createCli(): Command {
     .option("--bind <host>", "Direct P2P HTTP bind host", "127.0.0.1")
     .option("--advertise <url>", "Advertised direct URL (or 'none' to disable direct URL)")
     .option("--local-port <port>", "Local 127.0.0.1 control API port (0 for random)", "0")
+    .option(
+      "--allowed-origins <csv>",
+      "Comma-separated extra browser origins allowed for the Local Control API",
+      "",
+    )
     .option("--adapter <kind>", "Adapter kind: mcp | http | a2a | cli", "mcp")
     .option("--endpoint <url>", "HTTP or A2A agent endpoint URL")
     .option("--token-env <name>", "Environment variable name holding endpoint Bearer token")
@@ -244,6 +249,7 @@ export function createCli(): Command {
       bind: string;
       advertise?: string;
       localPort: string;
+      allowedOrigins: string;
       adapter: string;
       endpoint?: string;
       tokenEnv?: string;
@@ -307,6 +313,11 @@ export function createCli(): Command {
         .map((c) => c.trim())
         .filter(Boolean);
 
+      const allowedOrigins = cmdOpts.allowedOrigins
+        .split(",")
+        .map((o) => o.trim().replace(/\/+$/, ""))
+        .filter(Boolean);
+
       const iceServers =
         cmdOpts.stun === undefined
           ? undefined
@@ -332,6 +343,7 @@ export function createCli(): Command {
         port: Number(cmdOpts.port),
         advertiseUrl,
         localControlPort: Number(cmdOpts.localPort),
+        allowedOrigins,
         allowPrivate: cmdOpts.allowPrivate,
         enableWebRtc: cmdOpts.webrtc,
         ...(iceServers !== undefined ? { iceServers } : {}),

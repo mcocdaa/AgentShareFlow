@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  SERVER_URL_STORAGE_KEY,
+  getEnvServerUrl,
+  loadStoredServerUrl,
+  normalizeServerBaseUrl,
+  readServerUrlFromQuery,
+  resolveApiUrl,
+  resolveWsUrl,
+  saveStoredServerUrl,
+  validateServerBaseUrl,
+} from "../src/api";
 import { transportBadgeMeta } from "../src/components/DmPanel";
 import {
   isSafeExternalHref,
@@ -210,5 +221,116 @@ describe("i18n en/zh dictionary parity", () => {
     expect(translate("zh", "dm.localNodeWebrtcOn")).toBe("WebRTC NAT 穿透");
     expect(translate("en", "dm.localNodeWebrtcOff")).toBe("WebRTC Off");
     expect(translate("zh", "dm.localNodeWebrtcOff")).toBe("WebRTC 已关闭");
+    expect(translate("en", "auth.serverUrl")).toBe("Backend Server URL");
+    expect(translate("zh", "auth.serverUrl")).toBe("后端服务器地址");
+    expect(translate("en", "auth.serverUrlSameOrigin")).toBe("Same-origin");
+    expect(translate("zh", "auth.serverUrlSameOrigin")).toBe("同源默认");
+  });
+});
+
+describe("standalone backend server URL helpers", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes whitespace and trailing slashes", () => {
+    expect(normalizeServerBaseUrl("  http://127.0.0.1:8787///  ")).toBe(
+      "http://127.0.0.1:8787",
+    );
+    expect(normalizeServerBaseUrl("https://api.example.com/v2/")).toBe(
+      "https://api.example.com/v2",
+    );
+    expect(normalizeServerBaseUrl("   ")).toBe("");
+  });
+
+  it("validates http, https, and empty same-origin URLs while rejecting unsafe schemes", () => {
+    expect(validateServerBaseUrl("")).toEqual({ ok: true, url: "" });
+    expect(validateServerBaseUrl("   ")).toEqual({ ok: true, url: "" });
+    expect(validateServerBaseUrl("http://127.0.0.1:8787/")).toEqual({
+      ok: true,
+      url: "http://127.0.0.1:8787",
+    });
+    expect(validateServerBaseUrl("https://chat.example.com/agentshare///")).toEqual({
+      ok: true,
+      url: "https://chat.example.com/agentshare",
+    });
+
+    expect(validateServerBaseUrl("ftp://example.com")).toEqual({ ok: false });
+    expect(validateServerBaseUrl("javascript:alert(1)")).toEqual({ ok: false });
+    expect(validateServerBaseUrl("ws://127.0.0.1:8787")).toEqual({ ok: false });
+    expect(validateServerBaseUrl("not-a-valid-url")).toEqual({ ok: false });
+  });
+
+  it("resolves API URLs for standalone bases, path prefixes, and same-origin mode", () => {
+    expect(resolveApiUrl("/api/v2/rooms", "http://127.0.0.1:8787/")).toBe(
+      "http://127.0.0.1:8787/api/v2/rooms",
+    );
+    expect(resolveApiUrl("healthz", "https://api.example.com/sub/")).toBe(
+      "https://api.example.com/sub/healthz",
+    );
+    expect(resolveApiUrl("/api/v2/server/info", "")).toBe("/api/v2/server/info");
+    expect(resolveApiUrl("api/v2/me", "")).toBe("/api/v2/me");
+  });
+
+  it("resolves WebSocket URLs across http/https, path prefixes, trailing slashes, and fallbackLocation", () => {
+    expect(resolveWsUrl("tok+1/2", "http://127.0.0.1:8787")).toBe(
+      "ws://127.0.0.1:8787/ws?token=tok%2B1%2F2",
+    );
+    expect(resolveWsUrl("abc", "https://chat.example.com/")).toBe(
+      "wss://chat.example.com/ws?token=abc",
+    );
+    expect(resolveWsUrl("abc", "https://chat.example.com/agentshare///")).toBe(
+      "wss://chat.example.com/agentshare/ws?token=abc",
+    );
+    expect(
+      resolveWsUrl("abc", "", { protocol: "http:", host: "localhost:5173" }),
+    ).toBe("ws://localhost:5173/ws?token=abc");
+    expect(
+      resolveWsUrl("abc", "", { protocol: "https:", host: "ui.example.com:8443" }),
+    ).toBe("wss://ui.example.com:8443/ws?token=abc");
+  });
+
+  it("handles missing window safely in Node and respects query > localStorage > env priority", () => {
+    expect(getEnvServerUrl()).toBe("");
+    expect(readServerUrlFromQuery()).toBeNull();
+    expect(loadStoredServerUrl()).toBe("");
+    expect(() => saveStoredServerUrl("http://127.0.0.1:8787")).not.toThrow();
+
+    const store = new Map<string, string>();
+    const replaceState = vi.fn();
+    vi.stubGlobal("window", {
+      location: {
+        href: "http://127.0.0.1:5173/?server=http%3A%2F%2F127.0.0.1%3A8787%2F",
+        search: "?server=http%3A%2F%2F127.0.0.1%3A8787%2F",
+        protocol: "http:",
+        host: "127.0.0.1:5173",
+      },
+      history: { replaceState },
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          store.set(k, v);
+        },
+        removeItem: (k: string) => {
+          store.delete(k);
+        },
+      },
+    });
+
+    expect(readServerUrlFromQuery()).toBe("http://127.0.0.1:8787");
+    expect(loadStoredServerUrl()).toBe("http://127.0.0.1:8787");
+    expect(store.get(SERVER_URL_STORAGE_KEY)).toBe("http://127.0.0.1:8787");
+
+    saveStoredServerUrl("https://remote.example.com/");
+    expect(store.get(SERVER_URL_STORAGE_KEY)).toBe("https://remote.example.com");
+    expect(replaceState).toHaveBeenCalledTimes(1);
+
+    (window.location as { search: string }).search = "";
+    expect(loadStoredServerUrl()).toBe("https://remote.example.com");
+    expect(resolveApiUrl("/healthz")).toBe("https://remote.example.com/healthz");
+
+    saveStoredServerUrl(null);
+    expect(store.has(SERVER_URL_STORAGE_KEY)).toBe(false);
+    expect(loadStoredServerUrl()).toBe("");
   });
 });

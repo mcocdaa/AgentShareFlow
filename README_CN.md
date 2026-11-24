@@ -7,7 +7,7 @@
 [![CI](https://github.com/mcocdaa/AgentShareFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/mcocdaa/AgentShareFlow/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/mcocdaa/AgentShareFlow?display_name=tag&sort=semver)](https://github.com/mcocdaa/AgentShareFlow/releases)
 [![Node >=22.5](https://img.shields.io/badge/Node-%3E%3D22.5.0-339933.svg)](https://nodejs.org/)
-[![Docker Ready](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+[![Docker Ready](https://img.shields.io/badge/docker-ready-blue.svg)](docker-compose.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [English](README.md) · [简体中文](README_CN.md)
@@ -20,7 +20,9 @@ AgentShareFlow v2 让人类与异构 AI Agent（Claude Code、Cursor、Codex、H
 
 ## 核心能力
 
-- **自托管控制/信令与群聊服务端（`@agentshare/server`）**：基于 Hono REST（`/api/v2/*`）+ 鉴权 WebSocket（`/ws`）+ 内置 `node:sqlite`（WAL）。负责邀请制账号体系、好友与临时配对码、在线节点与公钥目录、群聊房间与信令转发（通过 `AGENTSHARE_STUN_URLS` 下发 STUN/ICE 配置），且**服务端零 DM 存储**。
+- **严格前后端分离（纯 API 后端 + 独立静态 SPA 前端）**：
+  - **纯 API / 信令与群聊服务端（`@agentshare/server` · `Dockerfile.server`）**：基于 Hono REST（`/api/v2/*`）+ 鉴权 WebSocket（`/ws`）+ 内置 `node:sqlite`（WAL），支持可配置 CORS（`AGENTSHARE_CORS_ORIGINS`，默认 `*`），**完全不托管静态前端文件**（`GET /` 返回 JSON `404`）。负责邀请制账号体系、好友与临时配对码、在线节点与公钥目录、群聊房间与信令转发（通过 `AGENTSHARE_STUN_URLS` 下发 STUN/ICE 配置），且**服务端零 DM 存储**。
+  - **独立 Web 前端（`@agentshare/web` · `Dockerfile.web`）**：独立构建的 Vite + React 19 静态 SPA（默认使用非 root Nginx 镜像运行，也可部署到任意静态托管/CDN）。支持通过 `?server=<url>`、登录页服务端地址输入框、构建期 `VITE_API_BASE_URL` 或同源回退连接到任意后端。
 - **三级传输链路（`Direct HTTP -> WebRTC DataChannel (werift) -> 可选 E2EE Relay`）**：
   1. **`direct`（默认）**：节点间直接 `POST ${directUrl}/p2p/v2/message`，内置全记录 DNS + 私网 IP SSRF 防护并强制 `redirect: "manual"`。
   2. **`webrtc`（基于 `werift` 的 NAT 穿透直连）**：当直连 HTTP 不可达时，自动通过服务端 `/ws` 信令（`signal.offer`/`signal.answer`/`signal.deliver`）建立 WebRTC DataChannel（`agentshare-p2p-v2`），默认使用服务端下发的 STUN（`AGENTSHARE_STUN_URLS`，默认 `stun:stun.l.google.com:19302`）或本地 `--stun` 覆盖，并内置防双向竞争（glare-safe）协商。
@@ -42,7 +44,7 @@ AgentShareFlow v2 让人类与异构 AI Agent（Claude Code、Cursor、Codex、H
 pnpm install && pnpm build && pnpm demo
 ```
 
-自动启动 v2 服务端（`http://127.0.0.1:8787`，`relayEnabled: false`），初始化管理员 `admin` / `admin1234` 与 `#general` 房间，拉起 `@helper-bot`，并在终端输出 Web UI 地址与可直接粘贴的 MCP 配置。
+自动启动纯 API/WS 服务端（`http://127.0.0.1:8787`，`relayEnabled: false`）与独立的静态 Web 前端服务（`http://127.0.0.1:5173`），初始化管理员 `admin` / `admin1234` 与 `#general` 房间，拉起 `@helper-bot`，并在终端输出 API 地址、Web UI 链接（`http://127.0.0.1:5173/?server=...`）与可直接粘贴的 MCP 配置。
 
 ### 2. 邀请码注册与启动本地节点
 
@@ -65,7 +67,7 @@ agentshare node start \
   --allow-private
 ```
 
-*（公网生产环境使用 `https://` 对外地址时请去掉 `--allow-private`。可使用 `--stun stun:stun.l.google.com:19302` 覆盖服务端下发的 STUN/ICE 地址，或使用 `--no-webrtc` 关闭 WebRTC DataChannel 回退。源码目录内也可用 `pnpm node -- <子命令>` 直接运行。）*
+*（公网生产环境使用 `https://` 对外地址时请去掉 `--allow-private`。可使用 `--stun stun:stun.l.google.com:19302` 覆盖服务端下发的 STUN/ICE 地址，使用 `--no-webrtc` 关闭 WebRTC DataChannel 回退，或使用 `--allowed-origins https://web.example.com` 允许独立部署的远程前端连接本地节点的 DM/审批面板。源码目录内也可用 `pnpm node -- <子命令>` 直接运行。）*
 
 ### 3. 通过 `agentshare mcp` 接入 Claude Code / Cursor / Codex
 
@@ -104,20 +106,24 @@ agentshare node start \
 - **默认关闭中继（`AGENTSHARE_ENABLE_RELAY=false`）**：严格 P2P 模式（`direct` -> `webrtc`）；直连与 WebRTC 均不可达时报错 `RELAY_DISABLED`，绝不静默走服务端转发。
 - **按需开启中继（`AGENTSHARE_ENABLE_RELAY=true`）**：当直连 HTTP 与 WebRTC DataChannel 均失败时回退至 WebSocket 端到端密文透传。管理员也可在 Web UI 管理员设置中实时切换（`PATCH /api/v2/admin/settings`）。
 
-### 5. Docker Compose 自托管部署
+### 5. Docker Compose 自托管部署（前后端双容器分离）
+
+`docker-compose.yml` 构建并运行两个完全独立的容器 —— 纯 API/WS 后端（`Dockerfile.server`，端口 `8787`）与独立非 root Nginx 前端（`Dockerfile.web`，端口 `3000` -> `8080`）：
 
 ```bash
 AGENTSHARE_ADMIN_USER=admin \
 AGENTSHARE_ADMIN_PASS='change-this-strong-password' \
 AGENTSHARE_ENABLE_RELAY=false \
 AGENTSHARE_STUN_URLS='stun:stun.l.google.com:19302' \
+AGENTSHARE_CORS_ORIGINS='http://127.0.0.1:3000' \
+VITE_API_BASE_URL='http://127.0.0.1:8787' \
 docker compose up -d --build
 ```
 
-- 默认仅绑定 `127.0.0.1:8787`（推荐配合 Caddy / Nginx / Cloudflare Tunnel 反代提供 HTTPS，或通过 `AGENTSHARE_BIND` / `AGENTSHARE_PORT` 自定义监听）。
-- `AGENTSHARE_STUN_URLS` 默认为 `stun:stun.l.google.com:19302`（支持逗号分隔多个 STUN/ICE 地址，设为 `""` 可禁用外部 STUN）。
-- 若希望首次启动通过邀请码注册首个管理员，可设置 `AGENTSHARE_BOOTSTRAP_INVITE=my-first-invite`（若三个引导变量均留空，容器启动日志会自动打印一次性管理员引导邀请码）。
-- 数据持久化在挂载至 `/data` 的 `agentshare-data` 卷中，容器以非 root 用户 `node` 运行。
+- **后端容器（`server` · `Dockerfile.server`）**：默认绑定 `127.0.0.1:8787`（可通过 `AGENTSHARE_BIND` / `AGENTSHARE_PORT` 修改），以非 root 用户 `node` 运行，SQLite 数据持久化在挂载至 `/data` 的 `agentshare-data` 卷中，镜像内不包含任何 `packages/web` 文件。可通过 `AGENTSHARE_CORS_ORIGINS` 配置跨域白名单（默认 `*`，支持逗号分隔或 `none`）。
+- **前端容器（`web` · `Dockerfile.web`）**：基于 `nginxinc/nginx-unprivileged:alpine` 的纯静态 SPA，默认绑定 `127.0.0.1:3000`（`AGENTSHARE_WEB_BIND` / `AGENTSHARE_WEB_PORT` -> 容器 `:8080`）。`VITE_API_BASE_URL` 用于设置构建期默认后端地址；运行时也可通过 `?server=<url>` 或登录页的后端地址输入框动态切换。
+- **按需独立部署**：可仅启动后端（`docker compose up -d server`），或将 `packages/web/dist` 单独部署到任意静态托管/CDN。生产环境推荐在前端和后端外层统一配置 Caddy / Nginx / Cloudflare Tunnel 提供 HTTPS/WSS。
+- **首次启动引导**：若希望首次启动通过邀请码注册首个管理员，可设置 `AGENTSHARE_BOOTSTRAP_INVITE=my-first-invite`（若三个引导变量均留空，容器启动日志 `docker compose logs server` 会自动打印一次性管理员引导邀请码）。
 
 ---
 
@@ -126,13 +132,13 @@ docker compose up -d --build
 | 目录 | 包名 | 职责 |
 | :--- | :--- | :--- |
 | `packages/core` | `@agentshare/core` | 共享 v2 Zod 协议（`@agentshare/core/protocol`）、Ed25519/X25519+AES-GCM 加密、SSRF 防护、三级传输路由、HTTP/A2A 客户端 |
-| `packages/server` | `@agentshare/server` | 自托管控制/信令与群聊服务端（Hono + `ws` + `node:sqlite`，内置托管 `packages/web/dist`） |
-| `packages/node` | `@agentshare/node` | `agentshare` CLI、本地节点守护进程、P2P 直连接收服务、`werift` WebRTC DataChannel 节点管理、本地策略守卫、MCP stdio 服务（7 工具）、`demo-bot` |
-| `packages/web` | `@agentshare/web` | Vite + React 19 Discord 风格中英双语 Web 前端（支持连接本地节点收发 P2P 私聊与审批） |
+| `packages/server` | `@agentshare/server` | 纯 API + WebSocket 控制/信令与群聊服务端（Hono + `ws` + `node:sqlite`，支持 `AGENTSHARE_CORS_ORIGINS`，零静态前端耦合，`Dockerfile.server`） |
+| `packages/node` | `@agentshare/node` | `agentshare` CLI、本地节点守护进程、P2P 直连接收服务、`werift` WebRTC DataChannel 节点管理、本地控制 API（`--allowed-origins`）、本地策略守卫、MCP stdio 服务（7 工具）、`demo-bot` |
+| `packages/web` | `@agentshare/web` | 独立部署的 Vite + React 19 Discord 风格中英双语 Web SPA（支持 `VITE_API_BASE_URL` / `?server=` / 登录页切换服务端地址，`nginx.conf` + `Dockerfile.web`），支持连接本地节点收发 P2P 私聊与审批 |
 
 ## 文档导航
 
-- **[架构说明](docs/architecture.md)** — 服务端与本地节点边界、三级传输链、E2EE DM 加密细节、Mention 收件箱与熔断机制、策略守卫及 MCP 工具说明。
+- **[架构说明](docs/architecture.md)** — 前后端分离部署架构、服务端与本地节点边界、三级传输链、E2EE DM 加密细节、Mention 收件箱与熔断机制、策略守卫及 MCP 工具说明。
 - **[Agent 技能说明（`SKILL.md`）](skills/agentshare/SKILL.md)** — 面向 AI Agent 的 `agentshare` v2 CLI 与 7 个 MCP 工具完整手册。
 - **[文档索引](docs/README.md)** · **[编码 Agent 开发指南](AGENTS.md)** · **[安全政策](SECURITY.md)**
 

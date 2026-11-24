@@ -38,26 +38,33 @@ jobs:
         run: pnpm typecheck
 
   docker:
-    name: Docker (compose config + build + v2 smoke)
+    name: Docker (compose config + decoupled server/web build + smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
         run: docker compose config -q
-      - name: Build & smoke test container
+      - name: Build & smoke test decoupled server and web containers
         run: |
           set -euo pipefail
           cleanup() {
-            docker rm -f asf-ci >/dev/null 2>&1 || true
+            docker rm -f asf-server-ci asf-web-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
-          docker build -t agent-share-flow:ci .
-          docker run -d --name asf-ci -p 18787:8787 \
+          docker build -f Dockerfile.server -t agent-share-flow-server:ci .
+          docker build -f Dockerfile.web \
+            --build-arg VITE_API_BASE_URL=http://127.0.0.1:18787 \
+            -t agent-share-flow-web:ci .
+
+          docker run -d --name asf-server-ci -p 18787:8787 \
             -e AGENTSHARE_ADMIN_USER=admin \
             -e AGENTSHARE_ADMIN_PASS=ci-password-123 \
-            agent-share-flow:ci
+            agent-share-flow-server:ci
+
+          docker run -d --name asf-web-ci -p 13000:8080 \
+            agent-share-flow-web:ci
 
           ready=0
           for _ in $(seq 1 30); do
@@ -68,8 +75,22 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then
-            echo "Container failed to pass /healthz"
-            docker logs asf-ci || true
+            echo "Server container failed to pass /healthz"
+            docker logs asf-server-ci || true
+            exit 1
+          fi
+
+          web_ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:13000/healthz >/dev/null; then
+              web_ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$web_ready" -ne 1 ]; then
+            echo "Web container failed to pass /healthz"
+            docker logs asf-web-ci || true
             exit 1
           fi
 
@@ -77,15 +98,57 @@ jobs:
           echo ""
           curl -fsS http://127.0.0.1:18787/api/v2/server/info
           echo ""
-          curl -fsS http://127.0.0.1:18787/ >/dev/null
 
-          status=$(curl -sS -o /tmp/reg-resp.txt -w '%{http_code}' \
+          preflight_status=$(curl -sS -D /tmp/cors-headers.txt -o /dev/null -w '%{http_code}' \
+            -X OPTIONS http://127.0.0.1:18787/api/v2/rooms \
+            -H 'Origin: http://127.0.0.1:13000' \
+            -H 'Access-Control-Request-Method: GET')
+          echo "CORS preflight HTTP status: $preflight_status"
+          if [ "$preflight_status" != "204" ] || ! grep -qi '^access-control-allow-origin:' /tmp/cors-headers.txt; then
+            cat /tmp/cors-headers.txt || true
+            docker logs asf-server-ci || true
+            exit 1
+          fi
+
+          root_status=$(curl -sS -o /tmp/server-root.txt -w '%{http_code}' http://127.0.0.1:18787/)
+          echo "Server GET / HTTP status: $root_status"
+          if [ "$root_status" != "404" ]; then
+            cat /tmp/server-root.txt || true
+            docker logs asf-server-ci || true
+            exit 1
+          fi
+
+          reg_status=$(curl -sS -o /tmp/reg-resp.txt -w '%{http_code}' \
             -X POST http://127.0.0.1:18787/api/v2/auth/register \
             -H 'content-type: application/json' \
             -d '{"username":"uninvited","password":"password123"}')
-          echo "Register without invite HTTP status: $status"
-          if [ "$status" != "403" ]; then
+          echo "Register without invite HTTP status: $reg_status"
+          if [ "$reg_status" != "403" ]; then
             cat /tmp/reg-resp.txt || true
-            docker logs asf-ci || true
+            docker logs asf-server-ci || true
+            exit 1
+          fi
+
+          if docker exec asf-server-ci test -e /app/packages/web; then
+            echo "Unexpected /app/packages/web found inside server container"
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:13000/healthz
+          echo ""
+
+          web_root_status=$(curl -sS -o /tmp/web-root.html -w '%{http_code}' http://127.0.0.1:13000/)
+          echo "Web GET / HTTP status: $web_root_status"
+          if [ "$web_root_status" != "200" ] || ! grep -qi '<!doctype html>\|<html' /tmp/web-root.html; then
+            head -n 20 /tmp/web-root.html || true
+            docker logs asf-web-ci || true
+            exit 1
+          fi
+
+          web_spa_status=$(curl -sS -o /tmp/web-spa.html -w '%{http_code}' http://127.0.0.1:13000/rooms/general)
+          echo "Web GET /rooms/general HTTP status: $web_spa_status"
+          if [ "$web_spa_status" != "200" ] || ! grep -qi '<!doctype html>\|<html' /tmp/web-spa.html; then
+            head -n 20 /tmp/web-spa.html || true
+            docker logs asf-web-ci || true
             exit 1
           fi
